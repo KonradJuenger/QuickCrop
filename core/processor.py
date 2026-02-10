@@ -11,14 +11,17 @@ def process_image(source_path: str, normalized_crop: tuple, output_path: str, ou
         # Load Image
         image = Image.open(source_path)
         
-        # Handle EXIF orientation (this returns a copy, so metadata might be lost)
-        # We need to preserve original info
-        original_info = image.info
-        exif = original_info.get('exif')
-        icc_profile = original_info.get('icc_profile')
+        # Handle EXIF orientation and metadata preservation
+        exif_obj = image.getexif()
+        icc_profile = image.info.get('icc_profile')
         
-        # Transpose based on EXIF tag 274
+        # Transpose based on EXIF tag (rotates pixels to upright)
         image = ImageOps.exif_transpose(image)
+        
+        # Strip orientation tag from EXIF object so it's not saved back.
+        # Orientation is tag 274 (0x0112).
+        if exif_obj and 0x0112 in exif_obj:
+            del exif_obj[0x0112]
         
         # Apply Custom Transformations
         # Order: Flip then Rotate (to match QGraphicsItem behavior if possible, 
@@ -64,13 +67,15 @@ def process_image(source_path: str, normalized_crop: tuple, output_path: str, ou
         resized_img = cropped_img.resize((target_w, target_h), Image.Resampling.LANCZOS)
         
         # Save
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        out_dir = os.path.dirname(output_path)
+        if out_dir:
+            os.makedirs(out_dir, exist_ok=True)
         
-        save_kwargs = {'quality': 95}
+        save_kwargs = {'quality': 100}
         if icc_profile:
             save_kwargs['icc_profile'] = icc_profile
-        if exif:
-            save_kwargs['exif'] = exif
+        if exif_obj:
+            save_kwargs['exif'] = exif_obj.tobytes()
             
         resized_img.save(output_path, **save_kwargs)
         return True

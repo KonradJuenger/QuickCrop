@@ -49,14 +49,10 @@ class CameraRollDelegate(QStyledItemDelegate):
                     option.direction, Qt.AlignmentFlag.AlignCenter,
                     option.decorationSize, option.rect
                 )
-                
-                # Adjusted to wrap the icon tightly but with NO intersection
-                # icon_rect is the ACTUAL pixel rect of the icon
-                border_rect = icon_rect.adjusted(-2, -2, 1, 1)
-                
-                painter.setBrush(Qt.BrushStyle.NoBrush)
-                painter.setPen(QPen(QColor("#0078d4"), 2))
-                painter.drawRoundedRect(border_rect, 2, 2)
+                # Draw a thick line below the icon
+                painter.setPen(QPen(QColor("#0078d4"), 3, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
+                line_y = icon_rect.bottom() + 3
+                painter.drawLine(icon_rect.left(), line_y, icon_rect.right(), line_y)
                 painter.restore()
 
 
@@ -110,6 +106,31 @@ class CameraRoll(QListWidget):
                 outline: none;
                 border: none;
             }
+            
+            /* Minimal, arrow-less scrollbar */
+            QScrollBar:horizontal {
+                border: none;
+                background: transparent;
+                height: 4px;
+                margin: 0px;
+            }
+            QScrollBar::handle:horizontal {
+                background: #ccc;
+                min-width: 20px;
+                border-radius: 2px;
+            }
+            QScrollBar::handle:horizontal:hover {
+                background: #bbb;
+            }
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+                border: none;
+                background: none;
+                width: 0px;
+                height: 0px;
+            }
+            QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+                background: none;
+            }
         """)
 
         self.delegate = CameraRollDelegate(self)
@@ -146,8 +167,9 @@ class CameraRoll(QListWidget):
         base_h = 100
         base_w = int(base_h * self.aspect_ratio)
 
-        # Grid dimensions - significantly reduced padding
-        grid_h = base_h + 8
+        # Grid dimensions - increased padding to leave room for the selection indicator 
+        # and the minimal scrollbar at the bottom.
+        grid_h = base_h + 16
         grid_w = base_w + 8
         self.setGridSize(QSize(grid_w, grid_h))
         self.setFixedHeight(grid_h)

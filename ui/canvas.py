@@ -36,9 +36,13 @@ class Canvas(QGraphicsView):
         self.norm_crop_rect = (0, 0, 1, 1) # (nx, ny, nw, nh)
         self.crop_rect = QRectF()
         self.handles = {}
-        self.interaction_mode = "NONE"  # "NONE", "RESIZE", "MOVE_CROP"
+        self.rotation_handle_rect = QRectF()
+        self.rotation_angle = 0.0
+        self.interaction_mode = "NONE"  # "NONE", "RESIZE", "MOVE_CROP", "ROTATE"
         self.active_handle = None
         self.last_mouse_pos = QPoint()
+        self.rotation_start_angle = 0.0
+        self.rotation_start_mouse_angle = 0.0
         
         self.overlay_color = QColor(0, 0, 0, 150)
         self.handle_size = 12
@@ -172,6 +176,8 @@ class Canvas(QGraphicsView):
         ny = (1.0 - nh) / 2
         self.norm_crop_rect = (nx, ny, nw, nh)
         self.sync_crop_to_viewport()
+        self._shrink_crop_to_fit()
+        self.sync_crop_from_viewport()
         self.crop_changed.emit()
 
     def set_aspect_ratio(self, ratio_str):
@@ -207,6 +213,17 @@ class Canvas(QGraphicsView):
             Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignLeft: QRectF(r.left() - hs/2, r.bottom() - hs/2, hs, hs),
             Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight: QRectF(r.right() - hs/2, r.bottom() - hs/2, hs, hs),
         }
+        
+        # Rotation handle at the long side
+        is_vertical = r.height() > r.width()
+        if is_vertical:
+            # Right side
+            handle_x = r.right() + 30
+            self.rotation_handle_rect = QRectF(handle_x - hs/2, r.center().y() - hs/2, hs, hs)
+        else:
+            # Bottom side
+            handle_y = r.bottom() + 30
+            self.rotation_handle_rect = QRectF(r.center().x() - hs/2, handle_y - hs/2, hs, hs)
 
     # ---- Drawing ----
     def paintEvent(self, event):
@@ -266,6 +283,26 @@ class Canvas(QGraphicsView):
         painter.setPen(QPen(QColor(0, 0, 0, 100), 1))
         for align, h_rect in self.handles.items():
             painter.drawRect(h_rect)
+            
+        # Rotation handle - Dot only
+        if not self.rotation_handle_rect.isNull():
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            
+            is_vertical = cr.height() > cr.width()
+            
+            if is_vertical:
+                # Connector line on right side
+                painter.setPen(QPen(QColor(255, 255, 255, 100), 1))
+                painter.drawLine(QPointF(cr.right(), cr.center().y()), self.rotation_handle_rect.center())
+            else:
+                # Connector line on bottom side
+                painter.setPen(QPen(QColor(255, 255, 255, 100), 1))
+                painter.drawLine(QPointF(cr.center().x(), cr.bottom()), self.rotation_handle_rect.center())
+            
+            # Handle Dot
+            painter.setBrush(QBrush(QColor(255, 255, 255, 255)))
+            painter.setPen(QPen(QColor(0, 0, 0, 150), 1))
+            painter.drawEllipse(self.rotation_handle_rect)
         
         painter.restore()
         self._draw_nav_indicators(painter, vp)
@@ -310,23 +347,60 @@ class Canvas(QGraphicsView):
     def rotate_image(self, angle):
         if not self.pixmap_item:
             return
-        center = self.pixmap_item.boundingRect().center()
-        self.pixmap_item.setTransformOriginPoint(center)
-        current = self.pixmap_item.rotation()
-        self.pixmap_item.setRotation(current + angle)
+            
+        # Rotate around crop center
+        cr_center_s = self.mapToScene(self.crop_rect.center().toPoint())
+        cr_center_l = self.pixmap_item.mapFromScene(cr_center_s)
         
-        self._update_scene_rect()
-        self._fit_to_viewport()
-        self.reset_crop_rect()
+        self.pixmap_item.setTransformOriginPoint(cr_center_l)
+        self.rotation_angle += angle
+        self.pixmap_item.setRotation(self.rotation_angle)
+        
+        # Shrink crop to fit within rotated image bounds
+        self._shrink_crop_to_fit()
+        
+        self.sync_crop_from_viewport()
+        self._update_handles()
         self.crop_changed.emit()
         self.viewport().update()
+    
+    def _shrink_crop_to_fit(self):
+        """Uniformly shrink the crop rect around its center until it fits within the rotated image."""
+        if not self.pixmap_item:
+            return
+        if self._is_crop_valid(self.crop_rect):
+            return  # Already valid, nothing to do
+        
+        center = self.crop_rect.center()
+        w = self.crop_rect.width()
+        h = self.crop_rect.height()
+        
+        # Binary search for the largest scale that fits
+        low = 0.1
+        high = 1.0
+        best = low
+        
+        for _ in range(20):
+            mid = (low + high) / 2
+            test_w = w * mid
+            test_h = h * mid
+            test_rect = QRectF(center.x() - test_w/2, center.y() - test_h/2, test_w, test_h)
+            if self._is_crop_valid(test_rect):
+                best = mid
+                low = mid
+            else:
+                high = mid
+        
+        final_w = w * best
+        final_h = h * best
+        self.crop_rect = QRectF(center.x() - final_w/2, center.y() - final_h/2, final_w, final_h)
 
     def get_transform_state(self):
         """Returns (rotation, flip_h, flip_v) state."""
         if not self.pixmap_item:
             return 0, False, False
         
-        rot = self.pixmap_item.rotation()
+        rot = self.rotation_angle
         
         # Check transform for flips
         t = self.pixmap_item.transform()
@@ -341,6 +415,7 @@ class Canvas(QGraphicsView):
         if not self.pixmap_item:
             return
             
+        self.rotation_angle = rotation
         center = self.pixmap_item.boundingRect().center()
         self.pixmap_item.setTransformOriginPoint(center)
         self.pixmap_item.setRotation(rotation)
@@ -444,8 +519,8 @@ class Canvas(QGraphicsView):
             else:
                 active_crop = QRectF(self.crop_rect)
             
-            # 1. Check handles first (if in edit mode)
             if not self.preview_mode:
+                # 1. Check handles
                 active_h = None
                 for align, rect in self.handles.items():
                     if QRectF(rect).contains(pos_f):
@@ -457,17 +532,27 @@ class Canvas(QGraphicsView):
                     self.active_handle = active_h
                     self.last_mouse_pos = pos
                     return
+                    
+                # 2. Check rotation handle
+                if self.rotation_handle_rect.contains(pos_f):
+                    self.interaction_mode = "ROTATE"
+                    self.rotation_start_angle = self.rotation_angle
+                    # Calculate initial mouse angle relative to crop center
+                    dp = pos_f - self.crop_rect.center()
+                    import math
+                    self.rotation_start_mouse_angle = math.degrees(math.atan2(dp.y(), dp.x()))
+                    self.last_mouse_pos = pos
+                    return
             
-            # 2. Check inside crop rect (Move in edit mode, Toggle-ready in preview)
+            # 3. Check inside crop rect (Move)
             if active_crop.contains(pos_f):
                 if not self.preview_mode:
                     self.interaction_mode = "MOVE_CROP"
                     self.setCursor(Qt.CursorShape.SizeAllCursor)
                 self.last_mouse_pos = pos
-                # We do NOT navigate if clicking inside the crop area
                 return
 
-            # 3. Navigation click (clicked in gutters)
+            # 4. Navigation click
             viewport_width = self.viewport().width()
             if pos.x() < viewport_width * 0.15:
                 self.navigation_requested.emit(-1)
@@ -480,6 +565,7 @@ class Canvas(QGraphicsView):
 
     def mouseMoveEvent(self, event):
         pos = event.pos()
+        pos_f = pos.toPointF()
         
         # Navigation hover detection
         vp_w = self.viewport().width()
@@ -501,7 +587,6 @@ class Canvas(QGraphicsView):
 
         if self.preview_mode or not self.pixmap_item:
             return
-        pos = event.pos()
         
         if self.interaction_mode == "RESIZE":
             self.resize_crop(pos)
@@ -511,16 +596,27 @@ class Canvas(QGraphicsView):
             self._move_crop(pos)
             self.sync_crop_from_viewport()
             self.viewport().update()
+        elif self.interaction_mode == "ROTATE":
+            import math
+            dp = pos_f - self.crop_rect.center()
+            current_mouse_angle = math.degrees(math.atan2(dp.y(), dp.x()))
+            diff = current_mouse_angle - self.rotation_start_mouse_angle
+            self.rotate_image(diff)
+            self.rotation_start_mouse_angle = current_mouse_angle
+            self.viewport().update()
         else:
             # Hover cursor
             hover = False
             for align, rect in self.handles.items():
-                if QRectF(rect).contains(pos.toPointF()):
+                if QRectF(rect).contains(pos_f):
                     self.setCursor(self._get_cursor_for_align(align))
                     hover = True
                     break
             if not hover:
-                if QRectF(self.crop_rect).contains(pos.toPointF()):
+                if self.rotation_handle_rect.contains(pos_f):
+                    self.setCursor(Qt.CursorShape.CrossCursor)
+                    hover = True
+                elif QRectF(self.crop_rect).contains(pos_f):
                     self.setCursor(Qt.CursorShape.SizeAllCursor)
                 else:
                     self.setCursor(Qt.CursorShape.ArrowCursor)
@@ -534,6 +630,33 @@ class Canvas(QGraphicsView):
         self.active_handle = None
         self.setCursor(Qt.CursorShape.ArrowCursor)
         super().mouseReleaseEvent(event)
+
+    def _is_crop_valid(self, rect_vp):
+        """Check if the given crop rect in viewport is within the rotated image polygon."""
+        if not self.pixmap_item:
+            return True
+            
+        # Get image polygon in scene coordinates (this is a rotated quadrilateral)
+        img_poly_s = self.pixmap_item.mapToScene(self.pixmap_item.boundingRect())
+        
+        # Inset the crop rect by a small margin to avoid edge precision issues
+        margin = 2.0
+        inset_rect = rect_vp.adjusted(margin, margin, -margin, -margin)
+        
+        # Get crop corners in scene using float-based mapping
+        # Map each corner individually to avoid QRect integer truncation
+        corners_vp = [
+            inset_rect.topLeft(),
+            inset_rect.topRight(),
+            inset_rect.bottomRight(),
+            inset_rect.bottomLeft(),
+        ]
+        
+        for corner in corners_vp:
+            scene_pt = self.mapToScene(corner.toPoint())
+            if not img_poly_s.containsPoint(scene_pt, Qt.FillRule.WindingFill):
+                return False
+        return True
 
     def _get_cursor_for_align(self, align):
         if align == (Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft) or \
@@ -549,19 +672,19 @@ class Canvas(QGraphicsView):
         
         new_rect = self.crop_rect.translated(delta)
         
-        # Clamp to image bounds
-        img_vp = self._image_rect_in_viewport()
+        # Check if new position is valid
+        if self._is_crop_valid(new_rect):
+            self.crop_rect = new_rect
+        else:
+            # Try moving only X or Y
+            rect_x = self.crop_rect.translated(delta.x(), 0)
+            if self._is_crop_valid(rect_x):
+                self.crop_rect = rect_x
+            else:
+                rect_y = self.crop_rect.translated(0, delta.y())
+                if self._is_crop_valid(rect_y):
+                    self.crop_rect = rect_y
         
-        if new_rect.left() < img_vp.left():
-            new_rect.moveLeft(img_vp.left())
-        if new_rect.right() > img_vp.right():
-            new_rect.moveRight(img_vp.right())
-        if new_rect.top() < img_vp.top():
-            new_rect.moveTop(img_vp.top())
-        if new_rect.bottom() > img_vp.bottom():
-            new_rect.moveBottom(img_vp.bottom())
-        
-        self.crop_rect = new_rect
         self._update_handles()
         self.crop_changed.emit()
 
@@ -569,7 +692,6 @@ class Canvas(QGraphicsView):
     def resize_crop(self, pos):
         if not self.pixmap_item:
             return
-        img_vp = self._image_rect_in_viewport()
         
         align = self.active_handle
         r = self.crop_rect
@@ -592,28 +714,42 @@ class Canvas(QGraphicsView):
         dir_x = 1 if (align & Qt.AlignmentFlag.AlignRight) else -1
         dir_y = 1 if (align & Qt.AlignmentFlag.AlignBottom) else -1
         
-        # Max available from fixed to image edge
-        if dir_x > 0:
-            max_w = img_vp.right() - fixed.x()
+        # Desired width from mouse position, maintaining aspect ratio
+        desired_w = max(abs(dx), 10.0)
+        desired_h = desired_w / self.aspect_ratio
+        
+        # Build desired rect
+        test_x = fixed.x() + (desired_w * dir_x)
+        test_y = fixed.y() + (desired_h * dir_y)
+        desired_rect = QRectF(fixed, QPointF(test_x, test_y)).normalized()
+        
+        if self._is_crop_valid(desired_rect):
+            self.crop_rect = desired_rect
         else:
-            max_w = fixed.x() - img_vp.left()
+            # Binary search for the largest valid size
+            low = 10.0
+            high = desired_w
+            best_w = low
+            
+            for _ in range(15):
+                mid = (low + high) / 2
+                test_h = mid / self.aspect_ratio
+                test_x = fixed.x() + (mid * dir_x)
+                test_y = fixed.y() + (test_h * dir_y)
+                test_rect = QRectF(fixed, QPointF(test_x, test_y)).normalized()
+                
+                if self._is_crop_valid(test_rect):
+                    best_w = mid
+                    low = mid
+                else:
+                    high = mid
+            
+            final_w = best_w
+            final_h = final_w / self.aspect_ratio
+            final_x = fixed.x() + (final_w * dir_x)
+            final_y = fixed.y() + (final_h * dir_y)
+            self.crop_rect = QRectF(fixed, QPointF(final_x, final_y)).normalized()
         
-        if dir_y > 0:
-            max_h = img_vp.bottom() - fixed.y()
-        else:
-            max_h = fixed.y() - img_vp.top()
-        
-        hard_max_w = min(max_w, max_h * self.aspect_ratio)
-        if hard_max_w < 10:
-            hard_max_w = 10
-        
-        new_w = min(abs(dx), hard_max_w)
-        new_h = new_w / self.aspect_ratio
-        
-        final_x = fixed.x() + (new_w * dir_x)
-        final_y = fixed.y() + (new_h * dir_y)
-        
-        self.crop_rect = QRectF(QPointF(fixed.x(), fixed.y()), QPointF(final_x, final_y)).normalized()
         self._update_handles()
         self.crop_changed.emit()
 
