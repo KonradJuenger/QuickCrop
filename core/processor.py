@@ -1,7 +1,8 @@
 from PIL import Image, ImageOps
 import os
 
-def process_image(source_path: str, normalized_crop: tuple, output_path: str, output_width: int, 
+def process_image(source_path: str, normalized_crop: tuple, output_path: str, 
+                  downsample: bool = True, target_res: int = 1080, res_mode: str = "Width",
                   rotation: float = 0, flip_h: bool = False, flip_v: bool = False):
     """
     Process image: Transform (Rotate/Flip), Crop, Resize, Save with Metadata.
@@ -24,8 +25,6 @@ def process_image(source_path: str, normalized_crop: tuple, output_path: str, ou
             del exif_obj[0x0112]
         
         # Apply Custom Transformations
-        # Order: Flip then Rotate (to match QGraphicsItem behavior if possible, 
-        # but in our case simplified: we just want it to match the view)
         if flip_h:
             image = image.transpose(Image.FLIP_LEFT_RIGHT)
         if flip_v:
@@ -51,9 +50,9 @@ def process_image(source_path: str, normalized_crop: tuple, output_path: str, ou
         bottom = min(orig_h, bottom)
         
         # Crop
-        cropped_img = image.crop((left, top, right, bottom))
+        final_img = image.crop((left, top, right, bottom))
         
-        # Resize - Calculate height to maintain crop aspect ratio
+        # Final Dimensions calculation
         crop_w = right - left
         crop_h = bottom - top
         
@@ -61,10 +60,15 @@ def process_image(source_path: str, normalized_crop: tuple, output_path: str, ou
             print(f"Invalid crop dimensions for {source_path}")
             return False
             
-        target_w = int(output_width)
-        target_h = int(target_w * (crop_h / crop_w))
-        
-        resized_img = cropped_img.resize((target_w, target_h), Image.Resampling.LANCZOS)
+        if downsample:
+            if res_mode == "Width":
+                tw = int(target_res)
+                th = int(tw * (crop_h / crop_w))
+            else: # Height
+                th = int(target_res)
+                tw = int(th * (crop_w / crop_h))
+            
+            final_img = final_img.resize((tw, th), Image.Resampling.LANCZOS)
         
         # Save
         out_dir = os.path.dirname(output_path)
@@ -77,7 +81,7 @@ def process_image(source_path: str, normalized_crop: tuple, output_path: str, ou
         if exif_obj:
             save_kwargs['exif'] = exif_obj.tobytes()
             
-        resized_img.save(output_path, **save_kwargs)
+        final_img.save(output_path, **save_kwargs)
         return True
             
     except Exception as e:
@@ -95,6 +99,10 @@ def calculate_default_crop(image_width: int, image_height: int, target_ratio_str
         target_aspect = 0.8
     elif target_ratio_str == "9:16":
         target_aspect = 9 / 16
+    elif target_ratio_str == "4:3":
+        target_aspect = 4 / 3
+    elif target_ratio_str == "3:4":
+        target_aspect = 3 / 4
     else:
         target_aspect = 1.0
 

@@ -1,65 +1,78 @@
 from PyQt6.QtWidgets import QListWidget, QListWidgetItem, QScroller, QStyledItemDelegate, QStyleOptionViewItem, QStyle
-from PyQt6.QtCore import pyqtSignal, QSize, QThreadPool, Qt, QRect, QPoint
+from PyQt6.QtCore import pyqtSignal, QSize, QThreadPool, Qt, QRect, QPoint, QTimer
 from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor, QPen
 
 
 class CameraRollDelegate(QStyledItemDelegate):
-    """Minimal delegate: draws icon + custom selection border only."""
+    """Custom delegate: draws icon centered at iconSize within the cell, with selection indicator."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._grid_mode = False
+
+    def set_grid_mode(self, enabled):
+        self._grid_mode = enabled
 
     def paint(self, painter, option, index):
         is_hidden = index.data(101) or False
+        icon = index.data(Qt.ItemDataRole.DecorationRole)
+
+        if not isinstance(icon, QIcon) or icon.isNull():
+            return
+
+        # Draw the icon at decorationSize, centered in the cell rect.
+        # This is what creates visible gaps: the cell (option.rect) is larger
+        # than the icon (decorationSize), so the surrounding space is the gap.
+        icon_size = option.decorationSize
+        cell_rect = option.rect
+
+        # Center the icon within the cell
+        x = cell_rect.x() + (cell_rect.width() - icon_size.width()) // 2
+        y = cell_rect.y() + (cell_rect.height() - icon_size.height()) // 2
+        draw_rect = QRect(x, y, icon_size.width(), icon_size.height())
+
+        pixmap = icon.pixmap(icon_size)
 
         if is_hidden:
-            # Draw grayscale version
-            icon = index.data(Qt.ItemDataRole.DecorationRole)
-            if isinstance(icon, QIcon) and not icon.isNull():
-                pixmap = icon.pixmap(option.decorationSize)
-                from PyQt6.QtGui import QImage
-                image = pixmap.toImage().convertToFormat(QImage.Format.Format_Grayscale8)
-
-                painter.save()
-                target_rect = QStyle.alignedRect(
-                    option.direction, Qt.AlignmentFlag.AlignCenter,
-                    option.decorationSize, option.rect
-                )
-                painter.setOpacity(0.4)
-                painter.drawImage(target_rect, image)
-                painter.restore()
-            else:
-                clean_option = QStyleOptionViewItem(option)
-                clean_option.state &= ~QStyle.StateFlag.State_Selected
-                clean_option.state &= ~QStyle.StateFlag.State_HasFocus
-                super().paint(painter, clean_option, index)
+            from PyQt6.QtGui import QImage
+            image = pixmap.toImage().convertToFormat(QImage.Format.Format_Grayscale8)
+            painter.save()
+            painter.setOpacity(0.4)
+            painter.drawImage(draw_rect, image)
+            painter.restore()
         else:
-            # Strip all system selection/focus indicators
-            clean_option = QStyleOptionViewItem(option)
-            clean_option.state &= ~QStyle.StateFlag.State_Selected
-            clean_option.state &= ~QStyle.StateFlag.State_HasFocus
-            super().paint(painter, clean_option, index)
+            painter.drawPixmap(draw_rect, pixmap)
 
-        if option.state & QStyle.StateFlag.State_Selected:
-            icon = index.data(Qt.ItemDataRole.DecorationRole)
-            if isinstance(icon, QIcon) and not icon.isNull():
-                painter.save()
-                painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-                
-                # Rect to draw the selection around
-                # We use decorationSize to ensure it follows the actual image bounds
-                icon_rect = QStyle.alignedRect(
-                    option.direction, Qt.AlignmentFlag.AlignCenter,
-                    option.decorationSize, option.rect
-                )
-                # Draw a thick line below the icon
-                painter.setPen(QPen(QColor("#0078d4"), 3, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap))
-                line_y = icon_rect.bottom() + 3
-                painter.drawLine(icon_rect.left(), line_y, icon_rect.right(), line_y)
-                painter.restore()
+        # Selection indicator: thick blue line below the image (normal mode only)
+        if (option.state & QStyle.StateFlag.State_Selected) and not self._grid_mode:
+            painter.save()
+            pen = QPen(QColor("#2979FF"))
+            pen.setWidth(3)
+            painter.setPen(pen)
+            y_line = draw_rect.bottom() + 10
+            painter.drawLine(draw_rect.left(), y_line, draw_rect.right(), y_line)
+            painter.restore()
+
+    def sizeHint(self, option, index):
+        # In grid mode (ListMode), sizeHint controls layout since gridSize is ignored.
+        # Return a size that includes the icon + gap margin.
+        parent = self.parent()
+        if parent and hasattr(parent, 'grid_mode') and parent.grid_mode:
+            gap = parent.GRID_GAP
+            icon_size = parent.iconSize()
+            return QSize(icon_size.width() + gap, icon_size.height() + gap)
+        # In normal mode (IconMode), gridSize controls layout, so sizeHint
+        # just needs to be <= gridSize. Return decorationSize.
+        return option.decorationSize
 
 
 class CameraRoll(QListWidget):
     image_selected = pyqtSignal(str)
     hide_requested = pyqtSignal(str)
     remove_requested = pyqtSignal(str)
+    items_reordered = pyqtSignal(list)
+
+    GRID_GAP = 8  # px gap between items in grid mode
 
     def __init__(self):
         super().__init__()
@@ -71,6 +84,8 @@ class CameraRoll(QListWidget):
         self.setSpacing(0)
         self.setMovement(QListWidget.Movement.Static)
         self.setMouseTracking(True)
+        self.setDragDropOverwriteMode(False)
+        self.setDefaultDropAction(Qt.DropAction.MoveAction)
 
         # Scrolling
         self.setHorizontalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
@@ -81,12 +96,23 @@ class CameraRoll(QListWidget):
 
         self.itemClicked.connect(self._on_item_clicked)
         self.currentItemChanged.connect(self._on_current_item_changed)
+        self.model().rowsMoved.connect(self._on_rows_moved)
+
+        self.grid_mode = False
+        self.columns = 6
+        self._last_grid_icon_w = 0
+        self._updating_layout = False
+
+        # Debounce layout updates to prevent flickering
+        self._layout_timer = QTimer()
+        self._layout_timer.setSingleShot(True)
+        self._layout_timer.setInterval(50)
+        self._layout_timer.timeout.connect(self._do_update_grid_layout)
 
         self.setStyleSheet("""
             QListWidget {
-                background-color: #f8f9fa;
+                background-color: white;
                 border: none;
-                padding: 0px;
             }
             QListWidget::item {
                 margin: 0px;
@@ -95,41 +121,30 @@ class CameraRoll(QListWidget):
                 border: none;
                 outline: none;
             }
-            QListWidget::item:selected,
-            QListWidget::item:selected:active,
-            QListWidget::item:selected:!active {
+            QListWidget::item:selected {
                 background: transparent;
                 border: none;
                 outline: none;
             }
-            QListWidget::item:focus {
-                outline: none;
-                border: none;
-            }
-            
-            /* Minimal, arrow-less scrollbar */
-            QScrollBar:horizontal {
+            QScrollBar:horizontal, QScrollBar:vertical {
                 border: none;
                 background: transparent;
                 height: 4px;
+                width: 4px;
                 margin: 0px;
             }
-            QScrollBar::handle:horizontal {
-                background: #ccc;
-                min-width: 20px;
+            QScrollBar::handle {
+                background: #ddd;
                 border-radius: 2px;
             }
-            QScrollBar::handle:horizontal:hover {
-                background: #bbb;
+            QScrollBar::handle:hover {
+                background: #ccc;
             }
-            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
-                border: none;
-                background: none;
+            QScrollBar::add-line, QScrollBar::sub-line {
                 width: 0px;
                 height: 0px;
-            }
-            QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
                 background: none;
+                border: none;
             }
         """)
 
@@ -143,11 +158,14 @@ class CameraRoll(QListWidget):
         self.aspect_ratio = 4 / 5
         self.set_aspect_ratio("4:5")
 
+    # ── Item management ─────────────────────────────────────────
+
     def add_image(self, filename: str, path: str, crop_rect=None):
         item = QListWidgetItem("")
         item.setData(100, path)
-        item.setData(101, False)  # hidden
+        item.setData(101, False)
         item.setToolTip(filename)
+        item.setFlags(item.flags() | Qt.ItemFlag.ItemIsDragEnabled | Qt.ItemFlag.ItemIsSelectable)
         self.addItem(item)
         self.path_to_item[path] = item
 
@@ -156,7 +174,10 @@ class CameraRoll(QListWidget):
         else:
             self.refresh_thumbnail(path)
 
+    # ── Normal mode (horizontal strip) ──────────────────────────
+
     def set_aspect_ratio(self, ratio_str):
+        self._current_ratio_str = ratio_str
         if ratio_str == "1:1":
             self.aspect_ratio = 1.0
         elif ratio_str == "4:5":
@@ -167,28 +188,176 @@ class CameraRoll(QListWidget):
         base_h = 100
         base_w = int(base_h * self.aspect_ratio)
 
-        # Grid dimensions - increased padding to leave room for the selection indicator 
-        # and the minimal scrollbar at the bottom.
-        grid_h = base_h + 16
-        grid_w = base_w + 8
-        self.setGridSize(QSize(grid_w, grid_h))
-        self.setFixedHeight(grid_h)
+        # IconMode uses gridSize for cell layout, iconSize for the icon.
+        # gridSize > iconSize = visible gap between thumbnails.
         self.setIconSize(QSize(base_w, base_h))
+        self.setGridSize(QSize(base_w + 10, base_h + 22))
+        self.setFixedHeight(base_h + 23)
 
         for path in self.path_to_item:
             self.refresh_thumbnail(path)
 
-    def refresh_thumbnail(self, path):
+    # ── Grid mode (arrange) ─────────────────────────────────────
+
+    def set_grid_mode(self, enabled):
+        self.grid_mode = enabled
+        if enabled:
+            # Kill QScroller so it doesn't eat mouse-down events
+            QScroller.ungrabGesture(self.viewport())
+            QScroller.ungrabGesture(self)
+
+            # ListMode supports proper drag-and-drop reordering with reflow.
+            # gridSize is IGNORED in ListMode — item size comes from delegate sizeHint.
+            self.setViewMode(QListWidget.ViewMode.ListMode)
+            self.setFlow(QListWidget.Flow.LeftToRight)
+            self.setWrapping(True)
+            self.setMovement(QListWidget.Movement.Static)
+            self.setResizeMode(QListWidget.ResizeMode.Adjust)
+            self.setSpacing(0)  # Gaps handled by delegate sizeHint
+
+            self.setDragDropMode(QListWidget.DragDropMode.InternalMove)
+            self.setDragEnabled(True)
+            self.setAcceptDrops(True)
+            self.viewport().setAcceptDrops(True)
+            self.setDropIndicatorShown(True)
+            self.setDragDropOverwriteMode(False)
+            self.setDefaultDropAction(Qt.DropAction.MoveAction)
+
+            self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+            self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            self.setMinimumHeight(200)
+            self.setMaximumHeight(16777215)
+
+            for path, item in self.path_to_item.items():
+                is_hidden = item.data(101) or False
+                item.setHidden(is_hidden)
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsDragEnabled | Qt.ItemFlag.ItemIsSelectable)
+
+            self.delegate.set_grid_mode(True)
+            self._update_grid_layout()
+        else:
+            QScroller.grabGesture(self.viewport(), QScroller.ScrollerGestureType.LeftMouseButtonGesture)
+
+            self.delegate.set_grid_mode(False)
+            self.setViewMode(QListWidget.ViewMode.IconMode)
+            self.setFlow(QListWidget.Flow.LeftToRight)
+            self.setWrapping(False)
+            self.setSpacing(0)
+            self.setDragDropMode(QListWidget.DragDropMode.NoDragDrop)
+            self.setMovement(QListWidget.Movement.Static)
+
+            for item in self.path_to_item.values():
+                item.setHidden(False)
+
+            self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+            self.set_aspect_ratio(self._current_ratio_str if hasattr(self, '_current_ratio_str') else "4:5")
+
+    def set_grid_size(self, columns):
+        self.columns = columns
+        self._last_grid_icon_w = 0
+        if self.grid_mode:
+            self._update_grid_layout()
+
+    def _update_grid_layout(self):
+        """Schedule a layout update."""
+        if self.grid_mode:
+            self._layout_timer.start()
+
+    def _do_update_grid_layout(self):
+        """Actually perform the layout update."""
+        if not self.grid_mode or self._updating_layout:
+            return
+            
+        self._updating_layout = True
+        try:
+            # Use width minus a safe margin for scrollbar if ScrollBarAlwaysOn
+            # viewport().width() already accounts for the scrollbar if it's AlwaysOn
+            vw = self.viewport().width()
+            if vw <= 0:
+                return
+
+            gap = self.GRID_GAP
+            # Calculate icon width based on available viewport width
+            icon_w = (vw // self.columns) - gap
+            if icon_w < 20:
+                icon_w = 20
+
+            # Only update if change is significant to avoid tiny oscillation loops
+            if abs(icon_w - self._last_grid_icon_w) < 1:
+                return
+                
+            self._last_grid_icon_w = icon_w
+            icon_h = int(icon_w / self.aspect_ratio)
+
+            # setIconSize and setGridSize trigger layout changes in QListWidget
+            self.setIconSize(QSize(icon_w, icon_h))
+            self.setGridSize(QSize(icon_w + gap, icon_h + gap))
+
+            # Hidden items update
+            for item in self.path_to_item.values():
+                is_hidden = item.data(101) or False
+                item.setHidden(self.grid_mode and is_hidden)
+                
+        finally:
+            self._updating_layout = False
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self.grid_mode:
+            self._update_grid_layout()
+
+    # ── Drag & drop event overrides ─────────────────────────────
+
+    def dragEnterEvent(self, event):
+        super().dragEnterEvent(event)
+        if event.source() == self:
+            event.accept()
+
+    def dragMoveEvent(self, event):
+        super().dragMoveEvent(event)
+        if event.source() == self:
+            event.setDropAction(Qt.DropAction.MoveAction)
+            event.accept()
+
+    def dropEvent(self, event):
+        super().dropEvent(event)
+
+    def startDrag(self, supportedActions):
+        super().startDrag(supportedActions)
+
+    def _on_rows_moved(self, parent, start, end, destination, row):
+        new_paths = []
+        for i in range(self.count()):
+            new_paths.append(self.item(i).data(100))
+        self.items_reordered.emit(new_paths)
+
+    # ── Thumbnail loading ───────────────────────────────────────
+
+    def refresh_thumbnail(self, path, rotation=0, flip_h=False, flip_v=False):
         if path in self.path_to_item:
             from ui.thumbnail_loader import ThumbnailLoader
-            loader = ThumbnailLoader(path, size=(self.iconSize().width(), self.iconSize().height()))
+            loader = ThumbnailLoader(
+                path, 
+                size=(self.iconSize().width(), self.iconSize().height()),
+                rotation=rotation,
+                flip_h=flip_h,
+                flip_v=flip_v
+            )
             loader.signals.finished.connect(self._on_thumbnail_loaded)
             self.thread_pool.start(loader)
 
-    def update_thumbnail(self, path, crop_rect):
+    def update_thumbnail(self, path, crop_rect, rotation=0, flip_h=False, flip_v=False):
         if path in self.path_to_item:
             from ui.thumbnail_loader import ThumbnailLoader
-            loader = ThumbnailLoader(path, size=(self.iconSize().width(), self.iconSize().height()), crop_rect=crop_rect)
+            loader = ThumbnailLoader(
+                path, 
+                size=(self.iconSize().width(), self.iconSize().height()), 
+                crop_rect=crop_rect,
+                rotation=rotation,
+                flip_h=flip_h,
+                flip_v=flip_v
+            )
             loader.signals.finished.connect(self._on_thumbnail_loaded)
             self.thread_pool.start(loader)
 
@@ -197,13 +366,14 @@ class CameraRoll(QListWidget):
             item = self.path_to_item[path]
             item.setIcon(QIcon(QPixmap.fromImage(image)))
 
+    # ── Selection / visibility ──────────────────────────────────
+
     def _on_item_clicked(self, item):
         if item:
             path = item.data(100)
             self.image_selected.emit(path)
 
     def _on_current_item_changed(self, current, previous):
-        # Force full repaint to prevent selection border "splitting"
         self.viewport().update()
         if current:
             path = current.data(100)
@@ -213,6 +383,8 @@ class CameraRoll(QListWidget):
         if path in self.path_to_item:
             item = self.path_to_item[path]
             item.setData(101, hidden)
+            if self.grid_mode:
+                item.setHidden(hidden)
             self.viewport().update()
 
     def remove_path(self, path):

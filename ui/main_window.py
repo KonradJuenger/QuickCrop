@@ -18,19 +18,42 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.central_widget)
         
         self.main_layout = QVBoxLayout(self.central_widget)
-        self.main_layout.setContentsMargins(20, 20, 20, 20)
+        self.main_layout.setContentsMargins(20, 20, 20, 0)
         self.main_layout.setSpacing(15)
         
-        # Toolbar (Custom Layout)
-        self.create_toolbar_layout()
+        # Settings
+        from PyQt6.QtCore import QSettings
+        self.settings = QSettings("Konrad", "InstagramCropTool")
+        self.output_dir = self.settings.value("output_dir", "")
         
-        self.content_layout = QHBoxLayout()
-        self.content_layout.setSpacing(20)
-        self.main_layout.addLayout(self.content_layout)
+        # State tracking (Toolbar related)
+        self.arrange_mode = False
+        self.rename_string = self.settings.value("rename_string", "export")
+        self.grid_size = int(self.settings.value("grid_size", 6))
+        self.rename_enabled = self.settings.value("rename_enabled", False, type=bool)
+        self.downsample_enabled = self.settings.value("downsample_enabled", True, type=bool)
+        self.res_value = int(self.settings.value("res_value", 1080))
+        self.res_mode = self.settings.value("res_mode", "Width")
+
+        # Toolbar (Stacked Widget)
+        from PyQt6.QtWidgets import QStackedWidget
+        self.toolbar_stack = QStackedWidget()
+        self.main_layout.addWidget(self.toolbar_stack)
+        
+        self.create_normal_toolbar()
+        self.create_arrange_toolbar()
+        self.toolbar_stack.setCurrentIndex(0)
+        
+        # Editor Container (for Normal Mode)
+        self.editor_container = QWidget()
+        self.main_layout.addWidget(self.editor_container, stretch=1)
+        self.editor_layout = QHBoxLayout(self.editor_container)
+        self.editor_layout.setContentsMargins(0, 0, 0, 0)
+        self.editor_layout.setSpacing(20)
         
         # Left Panel - Image List
         left_panel_layout = QVBoxLayout()
-        self.content_layout.addLayout(left_panel_layout)
+        self.editor_layout.addLayout(left_panel_layout)
         
         self.image_list = ImageList()
         left_panel_layout.addWidget(self.image_list)
@@ -43,11 +66,11 @@ class MainWindow(QMainWindow):
         
         # Center - Canvas
         self.canvas = Canvas()
-        self.content_layout.addWidget(self.canvas, stretch=1)
+        self.editor_layout.addWidget(self.canvas, stretch=1)
         
         # Right Panel - Tools
         right_panel = QVBoxLayout()
-        self.content_layout.addLayout(right_panel)
+        self.editor_layout.addLayout(right_panel)
         
         self.rotate_l_btn = QPushButton("Rot L")
         self.rotate_l_btn.setFixedSize(60, 40)
@@ -103,6 +126,7 @@ class MainWindow(QMainWindow):
         self.canvas.preview_toggled.connect(self.preview_btn.setChecked)
         self.canvas.navigation_requested.connect(self.navigate)
         self.camera_roll.itemDoubleClicked.connect(self._on_camera_roll_double_clicked)
+        self.camera_roll.items_reordered.connect(self._on_items_reordered)
         
         # Debounce timer for thumbnail updates
         self.thumb_update_timer = QTimer()
@@ -123,19 +147,14 @@ class MainWindow(QMainWindow):
         self.touch_timer.setSingleShot(True)
         self.touch_timer.setInterval(1000)
         self.touch_timer.timeout.connect(self._mark_current_as_touched)
-        
-        # Settings
-        from PyQt6.QtCore import QSettings
-        self.settings = QSettings("Konrad", "InstagramCropTool")
-        self.output_dir = self.settings.value("output_dir", "")
-        
+
         # Navigation buffering
         self._pending_nav_direction = 0
         self._nav_timer = QTimer()
         self._nav_timer.setSingleShot(True)
         self._nav_timer.setInterval(20)  # 20ms window to batch clicks
         self._nav_timer.timeout.connect(self._process_pending_nav)
-        
+
         # Performance: Image Cache
         self.image_cache = ImageCache(proxy_window=15)
         self.image_cache.image_ready.connect(self._on_image_cached)
@@ -144,24 +163,18 @@ class MainWindow(QMainWindow):
         from PyQt6.QtWidgets import QApplication
         QApplication.instance().installEventFilter(self)
         
-    def create_toolbar_layout(self):
-        toolbar_layout = QHBoxLayout()
-        self.main_layout.addLayout(toolbar_layout)
+    def create_normal_toolbar(self):
+        container = QWidget()
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
         
         # Load Images Action
         self.load_btn = QPushButton("Load Images")
         self.load_btn.setFixedSize(100, 30)
         self.load_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.load_btn.clicked.connect(self.load_images_dialog)
-        toolbar_layout.addWidget(self.load_btn)
+        layout.addWidget(self.load_btn)
         
-        # Set Output Folder
-        self.out_btn = QPushButton("Set Output")
-        self.out_btn.setFixedSize(100, 30)
-        self.out_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.out_btn.clicked.connect(self.set_output_folder)
-        toolbar_layout.addWidget(self.out_btn)
-
         # Preview All Toggle
         self.preview_btn = QPushButton("Preview Mode")
         self.preview_btn.setCheckable(True)
@@ -176,53 +189,161 @@ class MainWindow(QMainWindow):
             }
         """)
         self.preview_btn.clicked.connect(self.toggle_preview_mode)
-        toolbar_layout.addWidget(self.preview_btn)
+        layout.addWidget(self.preview_btn)
 
-        
-        # Vertical Separator logic (frame)
         from PyQt6.QtWidgets import QFrame
         line1 = QFrame()
         line1.setFrameShape(QFrame.Shape.VLine)
         line1.setFrameShadow(QFrame.Shadow.Sunken)
-        toolbar_layout.addWidget(line1)
+        layout.addWidget(line1)
         
         # Aspect Ratio Combo
         self.aspect_combo = QComboBox()
-        self.aspect_combo.addItems(["1:1", "4:5", "9:16"])
+        self.aspect_combo.addItems(["1:1", "4:5", "9:16", "4:3", "3:4"])
         self.aspect_combo.setCurrentText("4:5")
         self.aspect_combo.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.aspect_combo.currentTextChanged.connect(self.update_aspect_ratio)
-
-        toolbar_layout.addWidget(self.aspect_combo)
+        layout.addWidget(self.aspect_combo)
         
         line2 = QFrame()
         line2.setFrameShape(QFrame.Shape.VLine)
         line2.setFrameShadow(QFrame.Shadow.Sunken)
-        toolbar_layout.addWidget(line2)
+        layout.addWidget(line2)
         
-        # Output Resolution
-        from PyQt6.QtWidgets import QSpinBox, QLabel
-        toolbar_layout.addWidget(QLabel(" Width: "))
+        # Downsampling UI
+        from PyQt6.QtWidgets import QSpinBox, QLabel, QCheckBox
+        self.downsample_btn = QPushButton("Downsample")
+        self.downsample_btn.setCheckable(True)
+        self.downsample_btn.setChecked(self.downsample_enabled)
+        self.downsample_btn.setFixedSize(110, 30)
+        self.downsample_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.downsample_btn.setStyleSheet("""
+            QPushButton:checked {
+                background-color: #0078d7;
+                color: white;
+                font-weight: bold;
+            }
+        """)
+        self.downsample_btn.toggled.connect(self._on_downsample_toggled)
+        layout.addWidget(self.downsample_btn)
+
         self.res_spin = QSpinBox()
         self.res_spin.setRange(100, 10000)
-        self.res_spin.setValue(1080)
+        self.res_spin.setValue(self.res_value)
         self.res_spin.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        toolbar_layout.addWidget(self.res_spin)
+        self.res_spin.setEnabled(self.downsample_enabled)
+        self.res_spin.valueChanged.connect(lambda v: self.settings.setValue("res_value", v))
+        layout.addWidget(self.res_spin)
+
+        self.res_mode_combo = QComboBox()
+        self.res_mode_combo.addItems(["Width", "Height"])
+        self.res_mode_combo.setCurrentText(self.res_mode)
+        self.res_mode_combo.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.res_mode_combo.setEnabled(self.downsample_enabled)
+        self.res_mode_combo.currentTextChanged.connect(lambda t: self.settings.setValue("res_mode", t))
+        layout.addWidget(self.res_mode_combo)
         
         line3 = QFrame()
         line3.setFrameShape(QFrame.Shape.VLine)
         line3.setFrameShadow(QFrame.Shadow.Sunken)
-        toolbar_layout.addWidget(line3)
+        layout.addWidget(line3)
         
+        # Output Folder
+        self.out_btn = QPushButton("Output Folder")
+        self.out_btn.setFixedSize(110, 30)
+        self.out_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.out_btn.clicked.connect(self.set_output_folder)
+        layout.addWidget(self.out_btn)
+
         # Process All Action
         self.process_btn = QPushButton("Process All")
         self.process_btn.setFixedSize(100, 30)
         self.process_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.process_btn.clicked.connect(self.process_all)
-        toolbar_layout.addWidget(self.process_btn)
+        layout.addWidget(self.process_btn)
+
+        # Arrange + Export Action
+        self.arrange_btn = QPushButton("Arrange + Export")
+        self.arrange_btn.setFixedSize(120, 30)
+        self.arrange_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.arrange_btn.clicked.connect(lambda: self.toggle_arrange_mode(True))
+        layout.addWidget(self.arrange_btn)
         
-        # Spacer
-        toolbar_layout.addStretch()
+        layout.addStretch()
+        self.toolbar_stack.addWidget(container)
+
+    def create_arrange_toolbar(self):
+        from PyQt6.QtWidgets import QLabel, QSpinBox, QCheckBox, QLineEdit, QFrame
+        container = QWidget()
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Exit Button
+        self.exit_arrange_btn = QPushButton("Exit Arrange")
+        self.exit_arrange_btn.setFixedSize(100, 30)
+        self.exit_arrange_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.exit_arrange_btn.clicked.connect(lambda: self.toggle_arrange_mode(False))
+        layout.addWidget(self.exit_arrange_btn)
+        
+        line1 = QFrame()
+        line1.setFrameShape(QFrame.Shape.VLine)
+        line1.setFrameShadow(QFrame.Shadow.Sunken)
+        layout.addWidget(line1)
+        
+        # Grid Size
+        layout.addWidget(QLabel(" Grid Size: "))
+        self.grid_size_spin = QSpinBox()
+        self.grid_size_spin.setRange(1, 12)
+        self.grid_size_spin.setValue(self.grid_size)
+        self.grid_size_spin.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.grid_size_spin.valueChanged.connect(self._on_grid_size_changed)
+        layout.addWidget(self.grid_size_spin)
+        
+        line2 = QFrame()
+        line2.setFrameShape(QFrame.Shape.VLine)
+        line2.setFrameShadow(QFrame.Shadow.Sunken)
+        layout.addWidget(line2)
+        
+        # Rename logic
+        self.rename_btn = QPushButton("Rename")
+        self.rename_btn.setCheckable(True)
+        self.rename_btn.setChecked(self.rename_enabled)
+        self.rename_btn.setFixedSize(80, 30)
+        self.rename_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.rename_btn.setStyleSheet("""
+            QPushButton:checked {
+                background-color: #0078d7;
+                color: white;
+                font-weight: bold;
+            }
+        """)
+        self.rename_btn.toggled.connect(self._on_rename_toggled)
+        layout.addWidget(self.rename_btn)
+        
+        self.rename_input = QLineEdit()
+        self.rename_input.setPlaceholderText("Prefix...")
+        self.rename_input.setText(self.rename_string)
+        self.rename_input.setFixedWidth(150)
+        self.rename_input.setFixedHeight(30)
+        self.rename_input.setEnabled(self.rename_enabled)
+        self.rename_input.textChanged.connect(self._on_rename_string_changed)
+        layout.addWidget(self.rename_input)
+        
+        line3 = QFrame()
+        line3.setFrameShape(QFrame.Shape.VLine)
+        line3.setFrameShadow(QFrame.Shadow.Sunken)
+        layout.addWidget(line3)
+        
+        # Export Button
+        self.export_btn = QPushButton("Export")
+        self.export_btn.setFixedSize(100, 30)
+        self.export_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.export_btn.clicked.connect(self.process_all)
+        self.export_btn.setStyleSheet("font-weight: bold; background-color: #28a745; color: white;")
+        layout.addWidget(self.export_btn)
+        
+        layout.addStretch()
+        self.toolbar_stack.addWidget(container)
 
     def load_images_dialog(self):
         last_dir = self.settings.value("last_input_dir", "")
@@ -291,7 +412,7 @@ class MainWindow(QMainWindow):
             }
         
         # Update camera roll thumbnail with the correct default crop
-        self.camera_roll.update_thumbnail(path, default_crop)
+        self.camera_roll.update_thumbnail(path, default_crop, 0, False, False)
         
         # If this is the current image, update canvas too
         if path == self.current_image_path:
@@ -344,9 +465,11 @@ class MainWindow(QMainWindow):
         # Restore state or default
         if path in self.image_data:
             data = self.image_data[path]
-            self.aspect_combo.setCurrentText(data['ratio'])
+            ratio = data.get('ratio', "4:5")
+            
+            self.aspect_combo.setCurrentText(ratio)
             # Force update canvas ratio immediately before restoring rect
-            self.canvas.set_aspect_ratio(data['ratio'])
+            self.canvas.set_aspect_ratio(ratio)
             
             # Restore Transform
             rot = data.get('rotation', 0)
@@ -357,18 +480,27 @@ class MainWindow(QMainWindow):
             self.canvas.restore_crop_rect(data['crop'])
         else:
             # Default: just set aspect ratio, canvas center it by default
-            self.canvas.set_aspect_ratio(self.aspect_combo.currentText())
+            try:
+                current_ratio = self.aspect_combo.currentText()
+            except (AttributeError, RuntimeError):
+                current_ratio = "4:5"
+                
+            self.canvas.set_aspect_ratio(current_ratio)
             # Initialize image data WITHOUT a crop rect yet - let canvas set default
             self.image_data[path] = {
                 'touched': False, 
-                'ratio': self.aspect_combo.currentText()
+                'ratio': current_ratio
             }
             
         # Refresh thumbnail based on touched state
         if self.image_data[path].get('touched', False):
             self._refresh_thumbnail()
         else:
-            self.camera_roll.refresh_thumbnail(path)
+            data = self.image_data.get(path, {})
+            rot = data.get('rotation', 0)
+            fh = data.get('flip_h', False)
+            fv = data.get('flip_v', False)
+            self.camera_roll.refresh_thumbnail(path, rot, fh, fv)
 
         # Start timer to mark as touched
         if not self.image_data[path].get('touched', False):
@@ -404,7 +536,10 @@ class MainWindow(QMainWindow):
                 self.image_data[path]['crop'] = new_crop
                 self.image_data[path]['ratio'] = text
                 
-                self.camera_roll.update_thumbnail(path, new_crop)
+                rot = self.image_data.get(path, {}).get('rotation', 0)
+                fh = self.image_data.get(path, {}).get('flip_h', False)
+                fv = self.image_data.get(path, {}).get('flip_v', False)
+                self.camera_roll.update_thumbnail(path, new_crop, rot, fh, fv)
             else:
                 # If dimensions not loaded yet, the _on_image_info_loaded signal will handle it
                 if path not in self.image_data:
@@ -413,6 +548,12 @@ class MainWindow(QMainWindow):
         
     def eventFilter(self, watched, event):
         from PyQt6.QtCore import QEvent, Qt
+        
+        # Disable all custom shortcuts in Arrange Mode to avoid interference 
+        # (especially with the rename text box)
+        if hasattr(self, 'arrange_mode') and self.arrange_mode:
+            return False
+
         if event.type() == QEvent.Type.KeyPress:
             if event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right, Qt.Key.Key_J, Qt.Key.Key_K):
                 # Navigate image list
@@ -507,9 +648,9 @@ class MainWindow(QMainWindow):
         # Save current first
         self.save_current_state()
         
-        from core.processor import process_image
         import os
         from PyQt6.QtWidgets import QMessageBox
+        from ui.processing_dialog import ProcessingDialog
         
         count = self.image_list.count()
         if count == 0: return
@@ -530,10 +671,14 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "Error", f"Could not create output directory: {out_dir}")
                 return
         
-        width = self.res_spin.value()
+        # Downsampling parameters
+        downsample = self.downsample_btn.isChecked()
+        target_res = self.res_spin.value()
+        res_mode = self.res_mode_combo.currentText()
         
-        print("Starting processing...")
-        processed_count = 0
+        # Collect tasks
+        tasks = []
+        visible_index = 1
         for i in range(count):
             item = self.image_list.item(i)
             path = item.data(100)
@@ -552,16 +697,19 @@ class MainWindow(QMainWindow):
                     with Image.open(path) as img:
                         img = ImageOps.exif_transpose(img)
                         w, h = img.size
-                        ratio_str = self.aspect_combo.currentText()
-                        
-                        # Note: calculate_default_crop assumes original orientation
-                        # If we had rotation saved, we might need a more complex default
+                        ratio_str = self.image_data.get(path, {}).get('ratio', self.aspect_combo.currentText() if not self.arrange_mode else "4:5")
                         crop = calculate_default_crop(w, h, ratio_str)
                 except Exception as e:
                     print(f"Error calculating default crop for processing {path}: {e}")
                     continue
             
             filename = os.path.basename(path)
+            
+            if self.arrange_mode and self.rename_enabled:
+                ext = os.path.splitext(filename)[1]
+                filename = f"{self.rename_string}_{visible_index:02}{ext}"
+                visible_index += 1
+                
             out_path = os.path.join(out_dir, filename)
             
             # Get transform state
@@ -569,14 +717,23 @@ class MainWindow(QMainWindow):
             fh = self.image_data.get(path, {}).get('flip_h', False)
             fv = self.image_data.get(path, {}).get('flip_v', False)
             
-            success = process_image(path, crop, out_path, width, rotation=rot, flip_h=fh, flip_v=fv)
-            if success:
-                print(f"Processed {filename}")
-                processed_count += 1
-            else:
-                print(f"Failed {filename}")
-                
-        QMessageBox.information(self, "Processing Complete", f"Processed {processed_count} images to {out_dir}")
+            tasks.append({
+                'path': path,
+                'crop': crop,
+                'out_path': out_path,
+                'rotation': rot,
+                'flip_h': fh,
+                'flip_v': fv
+            })
+
+        if not tasks:
+            QMessageBox.information(self, "No Images", "No images to process (they might all be skipped).")
+            return
+
+        # Show Processing Dialog
+        dialog = ProcessingDialog(self)
+        dialog.start_processing(tasks, downsample, target_res, res_mode)
+        dialog.exec()
 
 
 
@@ -591,6 +748,74 @@ class MainWindow(QMainWindow):
         self.hidden_paths = set()
         self.canvas.clear()
         
+    def toggle_arrange_mode(self, enabled):
+        self.arrange_mode = enabled
+        
+        if enabled:
+            self.toolbar_stack.setCurrentIndex(1)
+            self.editor_container.hide()
+            self.main_layout.setStretch(1, 0)
+            self.main_layout.setStretch(2, 1)
+            self.camera_roll.set_grid_mode(True)
+            self.camera_roll.set_grid_size(self.grid_size)
+        else:
+            self.toolbar_stack.setCurrentIndex(0)
+            self.editor_container.show()
+            self.main_layout.setStretch(1, 1)
+            self.main_layout.setStretch(2, 0)
+            self.camera_roll.set_grid_mode(False)
+            # Resync selection just in case
+            if self.current_image_path:
+                self.sync_selection(self.current_image_path)
+
+
+
+    def _on_grid_size_changed(self, value):
+        self.grid_size = value
+        self.settings.setValue("grid_size", value)
+        if self.arrange_mode:
+            self.camera_roll.set_grid_size(value)
+
+    def _on_rename_toggled(self, checked):
+        self.rename_enabled = checked
+        self.settings.setValue("rename_enabled", checked)
+        if hasattr(self, 'rename_input'):
+            self.rename_input.setEnabled(checked)
+
+    def _on_rename_string_changed(self, text):
+        self.rename_string = text
+        self.settings.setValue("rename_string", text)
+
+    def _on_downsample_toggled(self, checked):
+        print(f"DEBUG: Downsample toggled: {checked}")
+        self.downsample_enabled = checked
+        self.settings.setValue("downsample_enabled", checked)
+        if hasattr(self, 'res_spin'):
+            self.res_spin.setEnabled(checked)
+        if hasattr(self, 'res_mode_combo'):
+            self.res_mode_combo.setEnabled(checked)
+
+    def _on_items_reordered(self, new_paths):
+        # Update internal tracking to match new order
+        self.all_paths = new_paths
+        self.path_to_index = {p: i for i, p in enumerate(self.all_paths)}
+        
+        # We also need to reorder the ImageList to keep them in sync
+        # (Though it's hidden in arrange mode, it should be correct when we return)
+        self.image_list.clear() # Simple way: clear and re-add
+        import os
+        for path in self.all_paths:
+            self.image_list.add_image(os.path.basename(path), path)
+            
+        # Re-apply strikeout for hidden paths
+        for path in self.hidden_paths:
+            idx = self.path_to_index[path]
+            item = self.image_list.item(idx)
+            font = item.font()
+            font.setStrikeOut(True)
+            item.setFont(font)
+            item.setForeground(Qt.GlobalColor.gray)
+
     def toggle_preview_mode(self, checked):
         # Update Canvas state to match the global toggle
         if checked != self.canvas.preview_mode:
@@ -702,7 +927,8 @@ class MainWindow(QMainWindow):
     def _refresh_thumbnail(self):
         if self.current_image_path:
             norm_rect = self.canvas.get_normalized_crop_rect()
-            self.camera_roll.update_thumbnail(self.current_image_path, norm_rect)
+            rot, fh, fv = self.canvas.get_transform_state()
+            self.camera_roll.update_thumbnail(self.current_image_path, norm_rect, rot, fh, fv)
 
     def _toggle_skip_current(self):
         if self.current_image_path:
