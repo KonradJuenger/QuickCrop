@@ -1,5 +1,6 @@
 from PIL import Image, ImageOps
 import os
+import math
 
 def process_image(source_path: str, normalized_crop: tuple, output_path: str, 
                   downsample: bool = True, target_res: int = 1080, res_mode: str = "Width",
@@ -93,17 +94,22 @@ def calculate_default_crop(image_width: int, image_height: int, target_ratio_str
     """
     Calculate default normalized crop rect (x, y, w, h) for a given aspect ratio.
     """
-    if target_ratio_str == "1:1":
-        target_aspect = 1.0
-    elif target_ratio_str == "4:5":
-        target_aspect = 0.8
-    elif target_ratio_str == "9:16":
-        target_aspect = 9 / 16
-    elif target_ratio_str == "4:3":
-        target_aspect = 4 / 3
-    elif target_ratio_str == "3:4":
-        target_aspect = 3 / 4
-    else:
+    try:
+        ratio_text = str(target_ratio_str).strip().replace(" ", "").replace("/", ":")
+        if ":" in ratio_text:
+            w_str, h_str = ratio_text.split(":", 1)
+            w = int(w_str)
+            h = int(h_str)
+            if w > 0 and h > 0:
+                gcd = math.gcd(w, h)
+                w //= gcd
+                h //= gcd
+                target_aspect = w / h
+            else:
+                target_aspect = 1.0
+        else:
+            target_aspect = 1.0
+    except (ValueError, ZeroDivisionError):
         target_aspect = 1.0
 
     img_ratio = image_width / image_height

@@ -1,5 +1,6 @@
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-                             QDockWidget, QToolBar, QComboBox, QPushButton, QFileDialog, QFrame)
+                             QDockWidget, QToolBar, QComboBox, QPushButton, QFileDialog, QFrame,
+                             QInputDialog, QMessageBox)
 from PySide6.QtCore import Qt, QSize, QTimer
 from PySide6.QtGui import QIcon, QFont
 from core.paths import get_resource_path
@@ -9,6 +10,11 @@ from ui.canvas import Canvas
 from core.image_cache import ImageCache
 
 class MainWindow(QMainWindow):
+    CUSTOM_ASPECT_LABEL = "Custom..."
+    DEFAULT_ASPECT_RATIOS = [
+        "1:1", "4:5", "5:4", "2:3", "3:2", "9:16", "16:9", "4:3", "3:4"
+    ]
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("QuickCrop")
@@ -77,23 +83,23 @@ class MainWindow(QMainWindow):
         
         icon_size = QSize(24, 24)
         
-        self.rotate_l_btn = QPushButton()
-        self.rotate_l_btn.setIcon(QIcon(get_resource_path("resources/rotate_ccw.svg")))
-        self.rotate_l_btn.setIconSize(icon_size)
-        self.rotate_l_btn.setFixedSize(60, 45)
-        self.rotate_l_btn.setToolTip("Rotate Counter-Clockwise (L)")
-        self.rotate_l_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.rotate_l_btn.clicked.connect(lambda: self.canvas.rotate_image(-90, snap_to_largest=True))
-        right_panel.addWidget(self.rotate_l_btn)
-        
         self.rotate_r_btn = QPushButton()
         self.rotate_r_btn.setIcon(QIcon(get_resource_path("resources/rotate_cw.svg")))
         self.rotate_r_btn.setIconSize(icon_size)
         self.rotate_r_btn.setFixedSize(60, 45)
-        self.rotate_r_btn.setToolTip("Rotate Clockwise (R)")
+        self.rotate_r_btn.setToolTip("90° CW")
         self.rotate_r_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.rotate_r_btn.clicked.connect(lambda: self.canvas.rotate_image(90, snap_to_largest=True))
         right_panel.addWidget(self.rotate_r_btn)
+
+        self.rotate_l_btn = QPushButton()
+        self.rotate_l_btn.setIcon(QIcon(get_resource_path("resources/rotate_ccw.svg")))
+        self.rotate_l_btn.setIconSize(icon_size)
+        self.rotate_l_btn.setFixedSize(60, 45)
+        self.rotate_l_btn.setToolTip("90° CCW")
+        self.rotate_l_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.rotate_l_btn.clicked.connect(lambda: self.canvas.rotate_image(-90, snap_to_largest=True))
+        right_panel.addWidget(self.rotate_l_btn)
         
         self.rotate_180_btn = QPushButton()
         self.rotate_180_btn.setIcon(QIcon(get_resource_path("resources/rotate_180.svg")))
@@ -194,6 +200,8 @@ class MainWindow(QMainWindow):
         self._nav_timer.setInterval(20)  # 20ms window to batch clicks
         self._nav_timer.timeout.connect(self._process_pending_nav)
 
+        self._last_valid_ratio = "4:5"
+
         # Performance: Image Cache
         self.image_cache = ImageCache(proxy_window=15)
         self.image_cache.image_ready.connect(self._on_image_cached)
@@ -216,10 +224,10 @@ class MainWindow(QMainWindow):
         
         # Aspect Ratio Combo
         self.aspect_combo = QComboBox()
-        self.aspect_combo.addItems(["1:1", "4:5", "9:16", "4:3", "3:4"])
+        self.aspect_combo.addItems(self.DEFAULT_ASPECT_RATIOS + [self.CUSTOM_ASPECT_LABEL])
         self.aspect_combo.setCurrentText("4:5")
         self.aspect_combo.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.aspect_combo.currentTextChanged.connect(self.update_aspect_ratio)
+        self.aspect_combo.currentTextChanged.connect(self._on_aspect_combo_changed)
         layout.addWidget(self.aspect_combo)
         
         line2 = QFrame()
@@ -425,7 +433,7 @@ class MainWindow(QMainWindow):
         self.path_to_dims[path] = (w, h)
         
         # Calculate initial crop now that we have dimensions
-        ratio_str = self.aspect_combo.currentText()
+        ratio_str = self._get_active_ratio()
         default_crop = calculate_default_crop(w, h, ratio_str)
         
         if path not in self.image_data:
@@ -446,7 +454,7 @@ class MainWindow(QMainWindow):
     def save_current_state(self):
         if self.current_image_path:
             norm_rect = self.canvas.get_normalized_crop_rect()
-            ratio = self.aspect_combo.currentText()
+            ratio = self._get_active_ratio()
             touched = self.image_data.get(self.current_image_path, {}).get('touched', False)
             
             rot, fh, fv = self.canvas.get_transform_state()
@@ -494,6 +502,7 @@ class MainWindow(QMainWindow):
             
             # Block signals to prevent triggering update_aspect_ratio (global override) 
             # while we are just switching images
+            self._ensure_ratio_in_combo(ratio)
             self.aspect_combo.blockSignals(True)
             self.aspect_combo.setCurrentText(ratio)
             self.aspect_combo.blockSignals(False)
@@ -511,7 +520,7 @@ class MainWindow(QMainWindow):
         else:
             # Default: just set aspect ratio, canvas center it by default
             try:
-                current_ratio = self.aspect_combo.currentText()
+                current_ratio = self._get_active_ratio()
             except (AttributeError, RuntimeError):
                 current_ratio = "4:5"
                 
@@ -745,7 +754,7 @@ class MainWindow(QMainWindow):
                     with Image.open(path) as img:
                         img = ImageOps.exif_transpose(img)
                         w, h = img.size
-                        ratio_str = self.image_data.get(path, {}).get('ratio', self.aspect_combo.currentText() if not self.arrange_mode else "4:5")
+                        ratio_str = self.image_data.get(path, {}).get('ratio', self._get_active_ratio() if not self.arrange_mode else "4:5")
                         crop = calculate_default_crop(w, h, ratio_str)
                 except Exception as e:
                     print(f"Error calculating default crop for processing {path}: {e}")
@@ -926,7 +935,8 @@ class MainWindow(QMainWindow):
             # Restore state (since display_image might have been called but skipped load_image)
             if path in self.image_data:
                 data = self.image_data[path]
-                ratio = data.get('ratio', self.aspect_combo.currentText())
+                ratio = data.get('ratio', self._get_active_ratio())
+                self._ensure_ratio_in_combo(ratio)
                 self.canvas.set_aspect_ratio(ratio)
                 
                 # Restore Transform
@@ -944,7 +954,7 @@ class MainWindow(QMainWindow):
                 if data.get('touched', False):
                     self._refresh_thumbnail()
             else:
-                self.canvas.set_aspect_ratio(self.aspect_combo.currentText())
+                self.canvas.set_aspect_ratio(self._get_active_ratio())
 
             # Transition to preview mode if requested
             if self.canvas.preview_mode:
@@ -958,7 +968,7 @@ class MainWindow(QMainWindow):
                  self.image_data[self.current_image_path] = {
                     'touched': True,
                     'crop': self.canvas.get_normalized_crop_rect(),
-                    'ratio': self.aspect_combo.currentText()
+                    'ratio': self._get_active_ratio()
                 }
             else:
                 self.image_data[self.current_image_path]['touched'] = True
@@ -974,7 +984,7 @@ class MainWindow(QMainWindow):
             # Ensure path exists in data
             if self.current_image_path not in self.image_data:
                  self.image_data[self.current_image_path] = {
-                    'ratio': self.aspect_combo.currentText()
+                    'ratio': self._get_active_ratio()
                 }
             
             # NOW capture the crop rect (canvas is guaranteed to be ready after 1s)
@@ -993,6 +1003,104 @@ class MainWindow(QMainWindow):
             norm_rect = self.canvas.get_normalized_crop_rect()
             rot, fh, fv = self.canvas.get_transform_state()
             self.camera_roll.update_thumbnail(self.current_image_path, norm_rect, rot, fh, fv)
+
+    def _normalize_ratio_text(self, value):
+        import math
+
+        if value is None:
+            return None
+
+        text = str(value).strip().replace(" ", "").replace("/", ":")
+        if text == self.CUSTOM_ASPECT_LABEL:
+            return None
+
+        parts = text.split(":")
+        if len(parts) != 2:
+            return None
+
+        try:
+            w = int(parts[0])
+            h = int(parts[1])
+        except ValueError:
+            return None
+
+        if w <= 0 or h <= 0:
+            return None
+
+        gcd = math.gcd(w, h)
+        w //= gcd
+        h //= gcd
+        return f"{w}:{h}"
+
+    def _get_active_ratio(self):
+        ratio = self._normalize_ratio_text(self.aspect_combo.currentText())
+        if ratio:
+            return ratio
+        return self._last_valid_ratio
+
+    def _ensure_ratio_in_combo(self, ratio_text):
+        if not ratio_text:
+            return
+        if self.aspect_combo.findText(ratio_text) != -1:
+            return
+
+        custom_idx = self.aspect_combo.findText(self.CUSTOM_ASPECT_LABEL)
+        insert_idx = custom_idx if custom_idx >= 0 else self.aspect_combo.count()
+        self.aspect_combo.insertItem(insert_idx, ratio_text)
+
+    def _prompt_custom_ratio(self):
+        seed = self._last_valid_ratio
+        while True:
+            ratio_text, ok = QInputDialog.getText(
+                self,
+                "Custom Aspect Ratio",
+                "Enter aspect ratio as W:H",
+                text=seed
+            )
+            if not ok:
+                return None
+
+            normalized = self._normalize_ratio_text(ratio_text)
+            if normalized:
+                return normalized
+
+            QMessageBox.warning(
+                self,
+                "Invalid Ratio",
+                "Please enter a positive ratio in W:H format, for example 3:2."
+            )
+            seed = ratio_text
+
+    def _on_aspect_combo_changed(self, text):
+        if text == self.CUSTOM_ASPECT_LABEL:
+            custom_ratio = self._prompt_custom_ratio()
+            if not custom_ratio:
+                self.aspect_combo.blockSignals(True)
+                self.aspect_combo.setCurrentText(self._last_valid_ratio)
+                self.aspect_combo.blockSignals(False)
+                return
+
+            self._ensure_ratio_in_combo(custom_ratio)
+            self.aspect_combo.blockSignals(True)
+            self.aspect_combo.setCurrentText(custom_ratio)
+            self.aspect_combo.blockSignals(False)
+            text = custom_ratio
+
+        normalized = self._normalize_ratio_text(text)
+        if not normalized:
+            self.aspect_combo.blockSignals(True)
+            self.aspect_combo.setCurrentText(self._last_valid_ratio)
+            self.aspect_combo.blockSignals(False)
+            return
+
+        if normalized != text:
+            self._ensure_ratio_in_combo(normalized)
+            self.aspect_combo.blockSignals(True)
+            self.aspect_combo.setCurrentText(normalized)
+            self.aspect_combo.blockSignals(False)
+
+        self._last_valid_ratio = normalized
+        self.update_aspect_ratio(normalized)
 
     def _toggle_skip_current(self):
         if self.current_image_path:
