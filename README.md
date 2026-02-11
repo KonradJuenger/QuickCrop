@@ -1,4 +1,4 @@
-# Quick Crop
+# QuickCrop
 
 QuickCrop is a desktop tool for preparing images for social media. It provides interactive cropping, batch processing, and organization features.
 
@@ -32,7 +32,6 @@ QuickCrop is a desktop tool for preparing images for social media. It provides i
 | `Up` / `I` | Toggle "Skip" status (image will not be exported) |
 | `L` | Reset crop to default |
 | `Backspace` / `O` | Remove image from the current list |
-| `F6` | Toggle debug overlay/logging |
 
 ## Installation
 
@@ -51,19 +50,6 @@ pip install -r requirements.txt
 # Run the application
 python main.py
 ```
-
-## Debugging Rotation Behavior
-
-Enable verbose rotation diagnostics in the console:
-
-```powershell
-$env:QC_DEBUG_ROTATION = "1"
-uv run main.py
-```
-
-This logs pivot locking, drag angle deltas, center auto-correction, and shrink-to-fit decisions from `Canvas`.
-
-You can toggle runtime debug mode with `F6` (rotation logs + collision overlay) without restarting.
 
 ## Distribution
 

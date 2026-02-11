@@ -1,6 +1,4 @@
 import math
-import os
-import time
 
 from PySide6.QtCore import Qt, QRectF, QPoint, QPointF, QSize, Signal, QTimer
 from PySide6.QtGui import QPainter, QColor, QPen, QBrush, QPainterPath, QTransform
@@ -49,13 +47,9 @@ class Canvas(QGraphicsView):
         self.rotation_start_mouse_angle = 0.0
         self._rotation_pivot_local = None  # Fixed pivot in pixmap-local coords during drag
         self._rotation_pre_drag_crop_w = None  # Crop pixel width at drag start (for grow-back)
-        self._debug_rotation_enabled = os.environ.get("QC_DEBUG_ROTATION", "").strip().lower() in {"1", "true", "yes", "on"}
-        self._debug_rotation_last_ts = 0.0
         
         self.overlay_color = QColor(0, 0, 0, 150)
         self.handle_size = 12
-        self.debug_collision = False
-        self._debug_collision_last = {}
         
         self.preview_mode = True
         self.scene_crop_rect_for_preview = QRectF()
@@ -91,14 +85,6 @@ class Canvas(QGraphicsView):
     def _normalize_angle(angle):
         return ((float(angle) + 180.0) % 360.0) - 180.0
 
-    def _debug_rotation(self, message, force=False):
-        if not self._debug_rotation_enabled:
-            return
-        now = time.monotonic()
-        if force or (now - self._debug_rotation_last_ts) >= 0.08:
-            print(f"[CanvasRotation] {message}")
-            self._debug_rotation_last_ts = now
-
     def _set_rotation_origin_keep_scene_point(self, pivot_local):
         """Set transform origin while keeping that local point fixed in scene coords."""
         if not self.pixmap_item:
@@ -109,27 +95,6 @@ class Canvas(QGraphicsView):
         delta = scene_before - scene_after
         if abs(delta.x()) > 1e-6 or abs(delta.y()) > 1e-6:
             self.pixmap_item.setPos(self.pixmap_item.pos() + delta)
-            self._debug_rotation(
-                f"origin compensate dx={delta.x():.3f} dy={delta.y():.3f}"
-            )
-
-    def _is_debug_enabled(self):
-        return bool(self._debug_rotation_enabled or self.debug_collision)
-
-    def set_debug_enabled(self, enabled):
-        enabled = bool(enabled)
-        self._debug_rotation_enabled = enabled
-        self.debug_collision = enabled
-        self._debug_collision_last.clear()
-        print(
-            f"[debug] {'ENABLED' if enabled else 'DISABLED'} (F6) "
-            f"rotation={'ON' if self._debug_rotation_enabled else 'OFF'} "
-            f"collision={'ON' if self.debug_collision else 'OFF'}"
-        )
-        self.viewport().update()
-
-    def toggle_debug(self):
-        self.set_debug_enabled(not self._is_debug_enabled())
 
     # ---- Loading ----
     def load_image(self, pixmap):
@@ -147,7 +112,6 @@ class Canvas(QGraphicsView):
         self.pixmap_item.setTransform(QTransform())
         self.pixmap_item.setRotation(0.0)
         self.pixmap_item.setTransformOriginPoint(self.pixmap_item.boundingRect().center())
-        self._debug_rotation("load_image reset transform state", force=True)
         
         self._update_scene_rect()
         
@@ -398,26 +362,6 @@ class Canvas(QGraphicsView):
                 painter.setBrush(QBrush(QColor(255, 255, 255, 200)))
             painter.setPen(QPen(QColor(0, 0, 0, 100), 1))
             painter.drawRect(h_rect)
-
-        if self.debug_collision:
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            for align in self.handles:
-                probe = self._get_corner_probe_data(align)
-                if probe is None:
-                    continue
-                corner, dir_x, dir_y = probe
-                eps = 0.35
-                probe_x = QPointF(corner.x() + (eps * dir_x), corner.y())
-                probe_y = QPointF(corner.x(), corner.y() + (eps * dir_y))
-                x_blocked = not self._is_point_inside_image(probe_x)
-                y_blocked = not self._is_point_inside_image(probe_y)
-                painter.setPen(QPen(QColor(0, 0, 0, 120), 1))
-                painter.drawLine(corner, probe_x)
-                painter.drawLine(corner, probe_y)
-                painter.setBrush(QBrush(QColor(255, 0, 0, 220) if x_blocked else QColor(0, 200, 0, 220)))
-                painter.drawEllipse(probe_x, 2.5, 2.5)
-                painter.setBrush(QBrush(QColor(255, 0, 0, 220) if y_blocked else QColor(0, 200, 0, 220)))
-                painter.drawEllipse(probe_y, 2.5, 2.5)
             
         # Rotation handle - Dot only
         if not self.rotation_handle_rect.isNull():
@@ -548,10 +492,6 @@ class Canvas(QGraphicsView):
         self._set_rotation_origin_keep_scene_point(pivot_local)
         self.rotation_angle = target_angle
         self.pixmap_item.setRotation(self.rotation_angle)
-        self._debug_rotation(
-            f"rotate angle={self.rotation_angle:.2f} interactive={interactive_rotate} "
-            f"snap_to_largest={snap_to_largest} pivot_local=({pivot_local.x():.2f}, {pivot_local.y():.2f})"
-        )
         
         # Update scene rect (base for fitting)
         self._update_scene_rect()
@@ -601,7 +541,6 @@ class Canvas(QGraphicsView):
             img_poly_s = self.pixmap_item.mapToScene(self.pixmap_item.boundingRect())
             img_poly_vp = vt.map(img_poly_s)
             poly_center = img_poly_vp.boundingRect().center()
-            old_center = QPointF(center)
             
             # Binary-search along center→poly_center for the first valid point
             lo_t, hi_t = 0.0, 1.0
@@ -619,16 +558,11 @@ class Canvas(QGraphicsView):
                 center.x() + (poly_center.x() - center.x()) * hi_t,
                 center.y() + (poly_center.y() - center.y()) * hi_t,
             )
-            self._debug_rotation(
-                f"center adjust from ({old_center.x():.2f}, {old_center.y():.2f}) "
-                f"to ({center.x():.2f}, {center.y():.2f})"
-            )
         
         # If the goal size already fits, just use it directly
         goal_rect = QRectF(center.x() - goal_w/2, center.y() - goal_h/2, goal_w, goal_h)
         if self._is_crop_valid(goal_rect):
             self.crop_rect = goal_rect
-            self._debug_rotation(f"crop goal fits w={goal_w:.2f} h={goal_h:.2f}")
             return
         
         # Binary search for the largest scale ∈ (0, 1] of goal_size that fits
@@ -650,9 +584,6 @@ class Canvas(QGraphicsView):
         final_w = max(20.0, goal_w * best)
         final_h = final_w / self.aspect_ratio  # Always maintain AR
         self.crop_rect = QRectF(center.x() - final_w/2, center.y() - final_h/2, final_w, final_h)
-        self._debug_rotation(
-            f"crop shrink scale={best:.4f} final_w={final_w:.2f} final_h={final_h:.2f}"
-        )
 
     def get_transform_state(self):
         """Returns (rotation, flip_h, flip_v) state."""
@@ -759,10 +690,6 @@ class Canvas(QGraphicsView):
             super().mouseDoubleClickEvent(event)
 
     def keyPressEvent(self, event):
-        if event.key() == Qt.Key.Key_F6:
-            self.toggle_debug()
-            event.accept()
-            return
         if event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right, Qt.Key.Key_Up, Qt.Key.Key_Down):
             event.ignore()
             return
@@ -821,12 +748,6 @@ class Canvas(QGraphicsView):
                     self._rotation_pivot_local = self.pixmap_item.mapFromScene(cr_center_s)
                     # Remember pre-drag crop pixel width so we can grow back
                     self._rotation_pre_drag_crop_w = self.crop_rect.width()
-                    self._debug_rotation(
-                        f"rotate start angle={self.rotation_start_angle:.2f} "
-                        f"mouse_angle={self.rotation_start_mouse_angle:.2f} "
-                        f"pivot_local=({self._rotation_pivot_local.x():.2f}, {self._rotation_pivot_local.y():.2f})",
-                        force=True,
-                    )
                     self.last_mouse_pos = pos
                     return
             
@@ -902,10 +823,6 @@ class Canvas(QGraphicsView):
             elif diff < -180: diff += 360
             
             target_angle = self.rotation_start_angle - diff
-            self._debug_rotation(
-                f"rotate drag mouse_angle={current_mouse_angle:.2f} diff={diff:.2f} "
-                f"target={target_angle:.2f}"
-            )
             self.rotate_image(target_angle, mouse_pos=pos, absolute=True)
             
             self.viewport().update()
@@ -943,12 +860,6 @@ class Canvas(QGraphicsView):
             self.sync_crop_from_viewport()
             self._update_handles()
             self.crop_changed.emit()
-            self._debug_rotation(
-                f"rotate end angle={self.rotation_angle:.2f} "
-                f"crop=({self.crop_rect.x():.2f}, {self.crop_rect.y():.2f}, "
-                f"{self.crop_rect.width():.2f}, {self.crop_rect.height():.2f})",
-                force=True,
-            )
         self.setCursor(Qt.CursorShape.ArrowCursor)
         super().mouseReleaseEvent(event)
 
@@ -992,17 +903,6 @@ class Canvas(QGraphicsView):
                 return False
         return True
 
-    def _align_name(self, align):
-        if align == (Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft):
-            return "TL"
-        if align == (Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight):
-            return "TR"
-        if align == (Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignLeft):
-            return "BL"
-        if align == (Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight):
-            return "BR"
-        return str(int(align))
-
     def _get_corner_probe_data(self, align):
         """Return corner point and outward axis directions for the given handle."""
         if not self.pixmap_item or self.crop_rect.isNull():
@@ -1040,26 +940,6 @@ class Canvas(QGraphicsView):
         x_blocked = not self._is_point_inside_image(probe_x)
         y_blocked = not self._is_point_inside_image(probe_y)
         colliding = x_blocked and y_blocked
-
-        if self.debug_collision:
-            # Log only when state/geometry changes to avoid spamming every frame.
-            key = self._align_name(align)
-            sig = (
-                round(self.rotation_angle, 3),
-                round(corner.x(), 2),
-                round(corner.y(), 2),
-                x_blocked,
-                y_blocked,
-                colliding,
-            )
-            if self._debug_collision_last.get(key) != sig:
-                print(
-                    "[collision-debug] "
-                    f"rot={self.rotation_angle:.3f} handle={key} colliding={colliding} "
-                    f"corner=({corner.x():.2f},{corner.y():.2f}) "
-                    f"x_blocked={x_blocked} y_blocked={y_blocked} eps={epsilon:.2f}"
-                )
-                self._debug_collision_last[key] = sig
 
         return colliding
 

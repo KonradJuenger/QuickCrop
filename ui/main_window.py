@@ -644,10 +644,6 @@ class MainWindow(QMainWindow):
             elif event.key() == Qt.Key.Key_Space:
                 self.canvas.toggle_preview()
                 return True
-            
-            elif event.key() == Qt.Key.Key_F6:
-                self.canvas.toggle_debug()
-                return True
                 
         return super().eventFilter(watched, event)
 
