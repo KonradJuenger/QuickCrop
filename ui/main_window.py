@@ -197,6 +197,7 @@ class MainWindow(QMainWindow):
         self.info_workers = {}  # path -> worker
         self.image_data = {} # path -> {'crop': (nx, ny, nw, nh), 'ratio': str, 'touched': bool}
         self.hidden_paths = set()
+        self._update_navigation_enabled()
         
         # Timer for marking image as touched
         self.touch_timer = QTimer()
@@ -430,6 +431,7 @@ class MainWindow(QMainWindow):
         # Display the first of the newly added images if nothing is selected
         if not self.current_image_path:
             self.display_image(new_images[0])
+        self._update_navigation_enabled()
 
     def _on_image_info_loaded(self, path, w, h):
         from core.processor import calculate_default_crop
@@ -479,6 +481,7 @@ class MainWindow(QMainWindow):
     def display_image(self, path):
         if self.current_image_path == path:
             return
+        target_preview_mode = self.canvas.preview_mode
             
         # Save previous
         self.save_current_state()
@@ -551,8 +554,8 @@ class MainWindow(QMainWindow):
         if not self.image_data[path].get('touched', False):
             self.touch_timer.start()
 
-        # Force Preview Mode when switching images
-        if not self.canvas.preview_mode:
+        # Preserve whichever mode (preview or edit) was active before switching
+        if self.canvas.preview_mode != target_preview_mode:
             self.canvas.toggle_preview()
 
         # Sync Skip button text
@@ -641,6 +644,10 @@ class MainWindow(QMainWindow):
             elif event.key() == Qt.Key.Key_Space:
                 self.canvas.toggle_preview()
                 return True
+            
+            elif event.key() == Qt.Key.Key_F6:
+                self.canvas.toggle_debug()
+                return True
                 
         return super().eventFilter(watched, event)
 
@@ -714,14 +721,18 @@ class MainWindow(QMainWindow):
         count = self.image_list.count()
         if count == 0: return
 
-        # Output folder logic
+        # Output folder is mandatory to avoid accidental overwrites
         out_dir = self.output_dir
         if not out_dir:
-            # Fallback to source dir / cropped if not set
-            first_item = self.image_list.item(0)
-            first_path = first_item.data(100)
-            source_dir = os.path.dirname(first_path)
-            out_dir = os.path.join(source_dir, "cropped")
+            QMessageBox.information(
+                self,
+                "Output Folder Required",
+                "Please select an output folder before exporting."
+            )
+            self.set_output_folder()
+            out_dir = self.output_dir
+            if not out_dir:
+                return
             
         if not os.path.exists(out_dir):
             try:
@@ -806,7 +817,8 @@ class MainWindow(QMainWindow):
         self.path_to_index = {}
         self.hidden_paths = set()
         self.canvas.clear()
-        
+        self._update_navigation_enabled()
+
     def toggle_arrange_mode(self, enabled):
         self.arrange_mode = enabled
         
@@ -1043,6 +1055,8 @@ class MainWindow(QMainWindow):
                 item.setFont(font)
                 item.setForeground(Qt.GlobalColor.black)
 
+        self._update_navigation_enabled()
+
     def remove_image(self, path):
         if path not in self.path_to_index:
             return
@@ -1085,3 +1099,8 @@ class MainWindow(QMainWindow):
         # Sync selection if we moved to next
         if self.current_image_path:
             self.sync_selection(self.current_image_path)
+        self._update_navigation_enabled()
+
+    def _update_navigation_enabled(self):
+        visible = sum(1 for path in self.all_paths if path not in self.hidden_paths)
+        self.canvas.set_navigation_enabled(visible > 1)

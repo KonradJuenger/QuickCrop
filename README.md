@@ -2,6 +2,8 @@
 
 QuickCrop is a desktop tool for preparing images for social media. It provides interactive cropping, batch processing, and organization features.
 
+![QuickCrop Screenshot](resources/jfJFxJAUdk.png)
+
 ## Features
 
 - **Interactive Cropping**: Adjust crop areas with real-time feedback. Supports 1:1, 4:5, 9:16, 4:3, and 3:4 ratios.
@@ -12,15 +14,25 @@ QuickCrop is a desktop tool for preparing images for social media. It provides i
 - **Downsampling**: Optionally resize images to a target resolution during export.
 - **Performance**: Background image loading and caching for smooth navigation.
 
+## Usage
+
+1. Click **Load Images** and select one or more files (`.jpg`, `.jpeg`, `.png`, `.tif`, `.tiff`).
+2. Navigate with `Left` / `Right` (or `J` / `K`), by clicking items in the list/camera roll, or by clicking near the left/right edge of the large preview.
+3. Press `Space` (or double-click inside the crop area) to switch between **Edit** and **Preview**. In Edit mode, move/resize the crop, rotate, mirror, or skip images (`Up` / `I`, **Skip**, or double-click in camera roll).
+4. Set **Output Folder** (required), then export:
+   - **Process All**: exports all non-skipped images.
+   - **Arrange + Export**: reorder by drag-and-drop, optionally enable **Rename**, then click **Export**.
+
 ## Keyboard Shortcuts
 
 | Key | Action |
 | :--- | :--- |
 | `Left` / `Right` or `J` / `K` | Navigate between images |
-| `Space` | Toggle Preview mode |
+| `Space` | Toggle Edit/Preview mode |
 | `Up` / `I` | Toggle "Skip" status (image will not be exported) |
 | `L` | Reset crop to default |
 | `Backspace` / `O` | Remove image from the current list |
+| `F6` | Toggle debug overlay/logging |
 
 ## Installation
 
@@ -39,6 +51,19 @@ pip install -r requirements.txt
 # Run the application
 python main.py
 ```
+
+## Debugging Rotation Behavior
+
+Enable verbose rotation diagnostics in the console:
+
+```powershell
+$env:QC_DEBUG_ROTATION = "1"
+uv run main.py
+```
+
+This logs pivot locking, drag angle deltas, center auto-correction, and shrink-to-fit decisions from `Canvas`.
+
+You can toggle runtime debug mode with `F6` (rotation logs + collision overlay) without restarting.
 
 ## Distribution
 

@@ -1,6 +1,8 @@
-from PySide6.QtWidgets import (QDialog, QVBoxLayout, QProgressBar, QLabel, 
+from PySide6.QtWidgets import (QDialog, QVBoxLayout, QProgressBar, QLabel,
                              QPushButton, QHBoxLayout)
 from PySide6.QtCore import Qt, Signal, QThread
+from PySide6.QtGui import QDesktopServices
+from PySide6.QtCore import QUrl
 import os
 from core.processor import process_image
 
@@ -55,7 +57,7 @@ class ProcessingDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Processing Images")
-        self.setFixedSize(400, 150)
+        self.setFixedSize(520, 220)
         self.setModal(True)
         # Prevent closing with X during processing
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowCloseButtonHint)
@@ -70,6 +72,7 @@ class ProcessingDialog(QDialog):
         layout.addWidget(self.progress_bar)
         
         self.status_label = QLabel("")
+        self.status_label.setWordWrap(True)
         layout.addWidget(self.status_label)
         
         self.btn_layout = QHBoxLayout()
@@ -78,6 +81,14 @@ class ProcessingDialog(QDialog):
         self.cancel_btn = QPushButton("Cancel")
         self.cancel_btn.clicked.connect(self.reject)
         self.btn_layout.addWidget(self.cancel_btn)
+
+        self.instagram_btn = QPushButton("Take a look")
+        self.instagram_btn.setFixedHeight(24)
+        self.instagram_btn.hide()
+        self.instagram_btn.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl("https://www.instagram.com/juengerkuehn/"))
+        )
+        self.btn_layout.addWidget(self.instagram_btn)
         
         self.close_btn = QPushButton("Close")
         self.close_btn.clicked.connect(self.accept)
@@ -104,8 +115,12 @@ class ProcessingDialog(QDialog):
 
     def on_finished(self, count, out_dir):
         self.label.setText("Processing Complete!")
-        self.status_label.setText(f"Processed {count} images to {out_dir}")
+        self.status_label.setText(
+            f"Processed {count} images to:\n{out_dir}\n\n"
+            "Thanks for using QuickCrop. We also design objects and explore digital craft: @juengerkuehn"
+        )
         self.cancel_btn.hide()
+        self.instagram_btn.show()
         self.close_btn.show()
         self.close_btn.setEnabled(True)
         # Enable X button again if needed, or just let them use Close button
