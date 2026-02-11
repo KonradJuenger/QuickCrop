@@ -290,11 +290,11 @@ class MainWindow(QMainWindow):
         self.out_btn.clicked.connect(self.set_output_folder)
         layout.addWidget(self.out_btn)
 
-        # Process All Action
-        self.process_btn = QPushButton("Process All")
+        # Export Action
+        self.process_btn = QPushButton("Export")
         self.process_btn.setFixedSize(100, 30)
         self.process_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.process_btn.clicked.connect(self.process_all)
+        self.process_btn.clicked.connect(self.export_images)
         layout.addWidget(self.process_btn)
 
         # Arrange + Export Action
@@ -373,7 +373,7 @@ class MainWindow(QMainWindow):
         self.export_btn = QPushButton("Export")
         self.export_btn.setFixedSize(100, 30)
         self.export_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.export_btn.clicked.connect(self.process_all)
+        self.export_btn.clicked.connect(self.export_images)
         self.export_btn.setStyleSheet("font-weight: bold; background-color: #28a745; color: white;")
         layout.addWidget(self.export_btn)
         
@@ -706,7 +706,7 @@ class MainWindow(QMainWindow):
         # This is now mostly a fallback as eventFilter should catch the main keys
         super().keyPressEvent(event)
                 
-    def process_all(self):
+    def export_images(self):
         # Save current first
         self.save_current_state()
         
