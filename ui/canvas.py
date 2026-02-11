@@ -80,17 +80,12 @@ class Canvas(QGraphicsView):
         
         self._update_scene_rect()
         
-        if self.preview_mode:
-            self.preview_mode = False
-        
         old_blocked = self.blockSignals(True)
         try:
             self.resetTransform()
-            self._fit_to_viewport()
             if self.norm_crop_rect == (0, 0, 1, 1):
                 self.reset_crop_rect()
-            else:
-                self.sync_crop_to_viewport()
+            self.update_fitting()
         finally:
             self.blockSignals(old_blocked)
         
@@ -131,6 +126,27 @@ class Canvas(QGraphicsView):
         
         # Center on the rect in scene coordinates
         self.centerOn(rect.center())
+
+    def update_fitting(self):
+        """Refresh the scale and center based on current preview_mode."""
+        if not self.pixmap_item:
+            return
+            
+        if self.preview_mode:
+            img_scene_rect = self.pixmap_item.sceneBoundingRect()
+            nx, ny, nw, nh = self.norm_crop_rect
+            self.scene_crop_rect_for_preview = QRectF(
+                img_scene_rect.x() + nx * img_scene_rect.width(),
+                img_scene_rect.y() + ny * img_scene_rect.height(),
+                nw * img_scene_rect.width(),
+                nh * img_scene_rect.height()
+            )
+            self._fit_to_viewport(self.scene_crop_rect_for_preview)
+        else:
+            self._fit_to_viewport()
+            self.sync_crop_to_viewport()
+        
+        self.viewport().update()
 
     # ---- State Synchronization ----
     def sync_crop_to_viewport(self):
@@ -183,17 +199,15 @@ class Canvas(QGraphicsView):
     def set_aspect_ratio(self, ratio_str):
         old_blocked = self.blockSignals(True)
         try:
-            if ratio_str == "1:1":
-                self.aspect_ratio = 1.0
-            elif ratio_str == "4:5":
-                self.aspect_ratio = 4 / 5
-            elif ratio_str == "9:16":
-                self.aspect_ratio = 9 / 16
+            if ":" in ratio_str:
+                try:
+                    w_str, h_str = ratio_str.split(":")
+                    self.aspect_ratio = float(w_str) / float(h_str)
+                except (ValueError, ZeroDivisionError):
+                    self.aspect_ratio = 4/5
             
-            self.preview_mode = False
-            
-            self._fit_to_viewport()
             self.reset_crop_rect()
+            self.update_fitting()
         finally:
             self.blockSignals(old_blocked)
         
@@ -451,21 +465,7 @@ class Canvas(QGraphicsView):
             return
         
         self.preview_mode = not self.preview_mode
-        if self.preview_mode:
-            img_scene_rect = self.pixmap_item.sceneBoundingRect()
-            nx, ny, nw, nh = self.norm_crop_rect
-            self.scene_crop_rect_for_preview = QRectF(
-                img_scene_rect.x() + nx * img_scene_rect.width(),
-                img_scene_rect.y() + ny * img_scene_rect.height(),
-                nw * img_scene_rect.width(),
-                nh * img_scene_rect.height()
-            )
-            self._fit_to_viewport(self.scene_crop_rect_for_preview)
-        else:
-            self._fit_to_viewport()
-            self.sync_crop_to_viewport()
-        
-        self.viewport().update()
+        self.update_fitting()
         self.preview_toggled.emit(self.preview_mode)
 
     # ---- Normalized crop <-> viewport ----
@@ -473,11 +473,8 @@ class Canvas(QGraphicsView):
         return self.norm_crop_rect
 
     def restore_crop_rect(self, norm_rect):
-        self.preview_mode = False
         self.norm_crop_rect = norm_rect
-        if self.pixmap_item:
-            self._fit_to_viewport()
-            self.sync_crop_to_viewport()
+        self.update_fitting()
         self.crop_changed.emit()
 
     # ---- Mouse interaction: crop rect only ----
@@ -756,13 +753,8 @@ class Canvas(QGraphicsView):
     # ---- Resize event: re-fit when window resizes ----
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        if self.pixmap_item:
-            if self.preview_mode:
-                self._fit_to_viewport(self.scene_crop_rect_for_preview)
-            else:
-                self._fit_to_viewport()
-                self.sync_crop_to_viewport()
-            self.crop_changed.emit()
+        self.update_fitting()
+        self.crop_changed.emit()
 
     def leaveEvent(self, event):
         self._hover_timer.stop()

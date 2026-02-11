@@ -20,21 +20,27 @@ class CameraRollDelegate(QStyledItemDelegate):
         if not isinstance(icon, QIcon) or icon.isNull():
             return
 
-        # Draw the icon at decorationSize, centered in the cell rect.
-        # This is what creates visible gaps: the cell (option.rect) is larger
-        # than the icon (decorationSize), so the surrounding space is the gap.
+        # Center the icon within the cell
         icon_size = option.decorationSize
         cell_rect = option.rect
-
+        
+        target_w = icon_size.width()
+        if is_hidden and not self._grid_mode:
+            target_w = int(icon_size.width() * 0.15)
+        
         # Center the icon within the cell
-        x = cell_rect.x() + (cell_rect.width() - icon_size.width()) // 2
+        x = cell_rect.x() + (cell_rect.width() - target_w) // 2
         y = cell_rect.y() + (cell_rect.height() - icon_size.height()) // 2
-        draw_rect = QRect(x, y, icon_size.width(), icon_size.height())
+        draw_rect = QRect(x, y, target_w, icon_size.height())
 
         pixmap = icon.pixmap(icon_size)
 
         if is_hidden:
             from PyQt6.QtGui import QImage
+            # Stretch the pixmap if we are shrinking
+            if not self._grid_mode:
+                pixmap = pixmap.scaled(target_w, icon_size.height(), Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            
             image = pixmap.toImage().convertToFormat(QImage.Format.Format_Grayscale8)
             painter.save()
             painter.setOpacity(0.4)
@@ -54,16 +60,22 @@ class CameraRollDelegate(QStyledItemDelegate):
             painter.restore()
 
     def sizeHint(self, option, index):
-        # In grid mode (ListMode), sizeHint controls layout since gridSize is ignored.
-        # Return a size that includes the icon + gap margin.
         parent = self.parent()
+        is_hidden = index.data(101) or False
+        
         if parent and hasattr(parent, 'grid_mode') and parent.grid_mode:
             gap = parent.GRID_GAP
             icon_size = parent.iconSize()
             return QSize(icon_size.width() + gap, icon_size.height() + gap)
-        # In normal mode (IconMode), gridSize controls layout, so sizeHint
-        # just needs to be <= gridSize. Return decorationSize.
-        return option.decorationSize
+        
+        # In normal mode (IconMode)
+        icon_size = option.decorationSize
+        w = icon_size.width()
+        if is_hidden:
+            w = int(w * 0.15)
+        
+        # Add a bit of gap for normal mode too
+        return QSize(w + 10, icon_size.height() + 22)
 
 
 class CameraRoll(QListWidget):
@@ -178,20 +190,20 @@ class CameraRoll(QListWidget):
 
     def set_aspect_ratio(self, ratio_str):
         self._current_ratio_str = ratio_str
-        if ratio_str == "1:1":
-            self.aspect_ratio = 1.0
-        elif ratio_str == "4:5":
-            self.aspect_ratio = 4 / 5
-        elif ratio_str == "9:16":
-            self.aspect_ratio = 9 / 16
+        if ":" in ratio_str:
+            try:
+                w_str, h_str = ratio_str.split(":")
+                self.aspect_ratio = float(w_str) / float(h_str)
+            except (ValueError, ZeroDivisionError):
+                self.aspect_ratio = 4/5
 
         base_h = 100
         base_w = int(base_h * self.aspect_ratio)
 
-        # IconMode uses gridSize for cell layout, iconSize for the icon.
-        # gridSize > iconSize = visible gap between thumbnails.
+        # IconMode supports variable width items via gridSize(0, 0) or by not setting it
+        # and relying on sizeHint if we use IconMode + Flow::LeftToRight + Wrapping::False
         self.setIconSize(QSize(base_w, base_h))
-        self.setGridSize(QSize(base_w + 10, base_h + 22))
+        self.setGridSize(QSize()) # Disable fixed grid size to allow variable width
         self.setFixedHeight(base_h + 23)
 
         for path in self.path_to_item:
@@ -383,8 +395,13 @@ class CameraRoll(QListWidget):
         if path in self.path_to_item:
             item = self.path_to_item[path]
             item.setData(101, hidden)
-            if self.grid_mode:
-                item.setHidden(hidden)
+            
+            # Use item.setHidden for Arrange Mode (makes them invisible/skipped in layout)
+            # In Normal Mode, items stay visible but shrink via delegate
+            item.setHidden(self.grid_mode and hidden)
+            
+            # Force re-layout
+            self.doItemsLayout()
             self.viewport().update()
 
     def remove_path(self, path):

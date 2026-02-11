@@ -1,39 +1,38 @@
 # Quick Crop
 
-Quick Crop is a powerful and lightweight desktop application designed for fast, interactive image cropping, specifically optimized for Instagram's aspect ratios. It features a modern, responsive UI and efficient batch processing capabilities.
+Quick Crop is a desktop tool for preparing images for Instagram. It provides interactive cropping, batch processing, and organization features.
 
 ## Features
 
-- **Interactive Cropping**: Precise control over crop areas with real-time preview.
-- **Instagram Optimized**: Pre-set aspect ratios (1:1, 4:5, 16:9) to match Instagram's requirements.
-- **Batch Processing**: Easily switch between multiple images in a folder.
-- **Modern UI**: Built with PyQt6 for a sleek and responsive experience.
-- **Fast Performance**: Optimized image loading and processing using Pillow.
+- **Interactive Cropping**: Adjust crop areas with real-time feedback. Supports 1:1, 4:5, 9:16, 4:3, and 3:4 ratios.
+- **Preview Mode**: View the final cropped result instantly (masked view).
+- **Arrange Mode**: A grid view to reorder images via drag-and-drop, review batch thumbnails, and bulk rename files.
+- **Image Transformations**: Rotate and mirror images.
+- **Batch Export**: Process multiple images at once to a selected output folder.
+- **Downsampling**: Optionally resize images to a target resolution during export.
+- **Performance**: Background image loading and caching for smooth navigation.
+
+## Keyboard Shortcuts
+
+| Key | Action |
+| :--- | :--- |
+| `Left` / `Right` or `J` / `K` | Navigate between images |
+| `Space` | Toggle Preview mode |
+| `Up` / `I` | Toggle "Skip" status (image will not be exported) |
+| `L` | Reset crop to default |
+| `Backspace` / `O` | Remove image from the current list |
 
 ## Installation
 
 ### Using [uv](https://github.com/astral-sh/uv) (Recommended)
 
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/quick-crop.git
-cd quick-crop
-
-# Run the application (uv will handle dependencies)
 uv run main.py
 ```
 
 ### Using pip
 
 ```bash
-# Clone the repository
-git clone https://github.com/yourusername/quick-crop.git
-cd quick-crop
-
-# Create and activate a virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
 # Install dependencies
 pip install -r requirements.txt
 
@@ -41,34 +40,19 @@ pip install -r requirements.txt
 python main.py
 ```
 
-## Usage
-
-1. **Launch**: Run `main.py`.
-2. **Load Images**: Use the "Load Images" button to select files.
-3. **Select Ratio**: Choose between 1:1, 4:5, or 9:16.
-4. **Crop**: Drag and resize the crop rectangle. Use the spacebar to toggle between the edit view and the final preview.
-5. **Process**: Click "Process All" to export all non-skipped images to the output folder.
-
 ## Distribution
 
-To compile the application into a standalone executable (Windows) or app bundle (macOS):
-
-### Using the build script (Recommended)
+To build a standalone executable:
 
 ```bash
-# This will use PyInstaller via uv to create a standalone build
 uv run python build.py
 ```
 
-The output will be located in the `dist/` directory:
-- **Windows**: `dist/QuickCrop.exe`
-- **macOS**: `dist/QuickCrop.app`
+Outputs are located in the `dist/` directory.
 
 ## License
 
-- **QuickCrop Code**: Licensed under the MIT License.
+- **Quick Crop**: Licensed under the [PolyForm Shield License 1.0.0](https://polyformproject.org/licenses/shield/1.0.0). This license allows commercial use but prohibits reselling or competing products.
 - **Dependencies**: 
-    - **PyQt6**: Licensed under [GPL v3](https://www.riverbankcomputing.com/software/pyqt/license).
+    - **PyQt6**: Licensed under [GPL v3](https://www.gnu.org/licenses/gpl-3.0.html).
     - **Pillow**: Licensed under [HPND](https://github.com/python-pillow/Pillow/blob/main/LICENSE).
-
-*Note: When distributing binaries, ensure compliance with the GPL v3 license regarding the availability of source code.*

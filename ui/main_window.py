@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-                             QDockWidget, QToolBar, QComboBox, QPushButton, QFileDialog)
+                             QDockWidget, QToolBar, QComboBox, QPushButton, QFileDialog, QFrame)
 from PyQt6.QtCore import Qt, QSize, QTimer
 from ui.image_list import ImageList
 from ui.camera_roll import CameraRoll
@@ -123,7 +123,6 @@ class MainWindow(QMainWindow):
         self.image_list.image_selected.connect(self.display_image)
         self.camera_roll.image_selected.connect(self.display_image)
         self.canvas.crop_changed.connect(self._on_crop_changed)
-        self.canvas.preview_toggled.connect(self.preview_btn.setChecked)
         self.canvas.navigation_requested.connect(self.navigate)
         self.camera_roll.itemDoubleClicked.connect(self._on_camera_roll_double_clicked)
         self.camera_roll.items_reordered.connect(self._on_items_reordered)
@@ -174,28 +173,6 @@ class MainWindow(QMainWindow):
         self.load_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.load_btn.clicked.connect(self.load_images_dialog)
         layout.addWidget(self.load_btn)
-        
-        # Preview All Toggle
-        self.preview_btn = QPushButton("Preview Mode")
-        self.preview_btn.setCheckable(True)
-        self.preview_btn.setChecked(True)
-        self.preview_btn.setFixedSize(100, 30)
-        self.preview_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.preview_btn.setStyleSheet("""
-            QPushButton:checked {
-                background-color: #0078d7;
-                color: white;
-                font-weight: bold;
-            }
-        """)
-        self.preview_btn.clicked.connect(self.toggle_preview_mode)
-        layout.addWidget(self.preview_btn)
-
-        from PyQt6.QtWidgets import QFrame
-        line1 = QFrame()
-        line1.setFrameShape(QFrame.Shape.VLine)
-        line1.setFrameShadow(QFrame.Shadow.Sunken)
-        layout.addWidget(line1)
         
         # Aspect Ratio Combo
         self.aspect_combo = QComboBox()
@@ -273,7 +250,7 @@ class MainWindow(QMainWindow):
         self.toolbar_stack.addWidget(container)
 
     def create_arrange_toolbar(self):
-        from PyQt6.QtWidgets import QLabel, QSpinBox, QCheckBox, QLineEdit, QFrame
+        from PyQt6.QtWidgets import QLabel, QSpinBox, QCheckBox, QLineEdit
         container = QWidget()
         layout = QHBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -467,7 +444,12 @@ class MainWindow(QMainWindow):
             data = self.image_data[path]
             ratio = data.get('ratio', "4:5")
             
+            # Block signals to prevent triggering update_aspect_ratio (global override) 
+            # while we are just switching images
+            self.aspect_combo.blockSignals(True)
             self.aspect_combo.setCurrentText(ratio)
+            self.aspect_combo.blockSignals(False)
+            
             # Force update canvas ratio immediately before restoring rect
             self.canvas.set_aspect_ratio(ratio)
             
@@ -506,13 +488,9 @@ class MainWindow(QMainWindow):
         if not self.image_data[path].get('touched', False):
             self.touch_timer.start()
 
-        # Global Preview Persistence
-        if self.preview_btn.isChecked():
-            if not self.canvas.preview_mode:
-                self.canvas.toggle_preview()
-        else:
-            if self.canvas.preview_mode:
-                self.canvas.toggle_preview()
+        # Force Preview Mode when switching images
+        if not self.canvas.preview_mode:
+            self.canvas.toggle_preview()
 
         # Sync Skip button text
         if path in self.hidden_paths:
@@ -521,6 +499,7 @@ class MainWindow(QMainWindow):
             self.skip_btn.setText("Skip")
 
     def update_aspect_ratio(self, text):
+        # Update components
         self.canvas.set_aspect_ratio(text)
         self.camera_roll.set_aspect_ratio(text)
         
@@ -529,19 +508,37 @@ class MainWindow(QMainWindow):
         for path in self.all_paths:
             if path in self.path_to_dims:
                 w, h = self.path_to_dims[path]
-                new_crop = calculate_default_crop(w, h, text)
+                
+                # Account for rotation when calculating default crop
+                data = self.image_data.get(path, {})
+                rot = data.get('rotation', 0)
+                fh = data.get('flip_h', False)
+                fv = data.get('flip_v', False)
+                
+                # Visible dimensions after rotation (90, 270 deg swaps dims)
+                calc_w, calc_h = w, h
+                if rot % 180 != 0:
+                    calc_w, calc_h = h, w
+                    
+                new_crop = calculate_default_crop(calc_w, calc_h, text)
                 
                 if path not in self.image_data:
                     self.image_data[path] = {}
+                
+                # If this is the current image, let the canvas provide the precise crop 
+                # (it might have done extra fitting/shrinking)
+                if path == self.current_image_path:
+                    new_crop = self.canvas.get_normalized_crop_rect()
+                
                 self.image_data[path]['crop'] = new_crop
                 self.image_data[path]['ratio'] = text
                 
-                rot = self.image_data.get(path, {}).get('rotation', 0)
-                fh = self.image_data.get(path, {}).get('flip_h', False)
-                fv = self.image_data.get(path, {}).get('flip_v', False)
-                self.camera_roll.update_thumbnail(path, new_crop, rot, fh, fv)
+                # Update thumbnail in camera roll (except if it's the current image,
+                # which will be updated by the canvas's crop_changed signal debounce)
+                if path != self.current_image_path:
+                    self.camera_roll.update_thumbnail(path, new_crop, rot, fh, fv)
             else:
-                # If dimensions not loaded yet, the _on_image_info_loaded signal will handle it
+                # If dimensions not loaded yet, ratio will be applied when info worker finishes
                 if path not in self.image_data:
                     self.image_data[path] = {}
                 self.image_data[path]['ratio'] = text
@@ -579,8 +576,7 @@ class MainWindow(QMainWindow):
                 return True
             
             elif event.key() == Qt.Key.Key_Space:
-                self.preview_btn.setChecked(not self.preview_btn.isChecked())
-                self.toggle_preview_mode(self.preview_btn.isChecked())
+                self.canvas.toggle_preview()
                 return True
                 
         return super().eventFilter(watched, event)
@@ -816,12 +812,6 @@ class MainWindow(QMainWindow):
             item.setFont(font)
             item.setForeground(Qt.GlobalColor.gray)
 
-    def toggle_preview_mode(self, checked):
-        # Update Canvas state to match the global toggle
-        if checked != self.canvas.preview_mode:
-            self.canvas.toggle_preview()
-        self.canvas.viewport().update()
-
     def sync_selection(self, path):
         if path not in self.path_to_index:
             return
@@ -883,9 +873,10 @@ class MainWindow(QMainWindow):
             else:
                 self.canvas.set_aspect_ratio(self.aspect_combo.currentText())
 
-            # Respect global preview mode
-            if self.preview_btn.isChecked() and not self.canvas.preview_mode:
-                self.canvas.toggle_preview()
+            # Transition to preview mode if requested
+            if self.canvas.preview_mode:
+                 # Re-trigger fitting for the new image if not already handled
+                 self.canvas.restore_crop_rect(self.canvas.norm_crop_rect)
 
     def _on_crop_changed(self):
         # Mark as touched if not already
