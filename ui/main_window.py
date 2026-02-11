@@ -1,7 +1,7 @@
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QDockWidget, QToolBar, QComboBox, QPushButton, QFileDialog, QFrame)
 from PySide6.QtCore import Qt, QSize, QTimer
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QIcon, QFont
 from core.paths import get_resource_path
 from ui.image_list import ImageList
 from ui.camera_roll import CameraRoll
@@ -75,22 +75,6 @@ class MainWindow(QMainWindow):
         right_panel = QVBoxLayout()
         self.editor_layout.addLayout(right_panel)
         
-        btn_style = """
-            QPushButton {
-                background-color: #f8f9fa;
-                border: 1px solid #dee2e6;
-                border-radius: 4px;
-                padding: 5px;
-            }
-            QPushButton:hover {
-                background-color: #e9ecef;
-                border-color: #adb5bd;
-            }
-            QPushButton:pressed {
-                background-color: #dee2e6;
-            }
-        """
-        
         icon_size = QSize(24, 24)
         
         self.rotate_l_btn = QPushButton()
@@ -99,7 +83,6 @@ class MainWindow(QMainWindow):
         self.rotate_l_btn.setFixedSize(60, 45)
         self.rotate_l_btn.setToolTip("Rotate Counter-Clockwise (L)")
         self.rotate_l_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.rotate_l_btn.setStyleSheet(btn_style)
         self.rotate_l_btn.clicked.connect(lambda: self.canvas.rotate_image(-90, snap_to_largest=True))
         right_panel.addWidget(self.rotate_l_btn)
         
@@ -109,7 +92,6 @@ class MainWindow(QMainWindow):
         self.rotate_r_btn.setFixedSize(60, 45)
         self.rotate_r_btn.setToolTip("Rotate Clockwise (R)")
         self.rotate_r_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.rotate_r_btn.setStyleSheet(btn_style)
         self.rotate_r_btn.clicked.connect(lambda: self.canvas.rotate_image(90, snap_to_largest=True))
         right_panel.addWidget(self.rotate_r_btn)
         
@@ -119,7 +101,6 @@ class MainWindow(QMainWindow):
         self.rotate_180_btn.setFixedSize(60, 45)
         self.rotate_180_btn.setToolTip("Rotate 180°")
         self.rotate_180_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.rotate_180_btn.setStyleSheet(btn_style)
         self.rotate_180_btn.clicked.connect(lambda: self.canvas.rotate_image(180, snap_to_largest=True))
         right_panel.addWidget(self.rotate_180_btn)
         
@@ -131,7 +112,6 @@ class MainWindow(QMainWindow):
         self.mirror_h_btn.setFixedSize(60, 45)
         self.mirror_h_btn.setToolTip("Flip Horizontal (H)")
         self.mirror_h_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.mirror_h_btn.setStyleSheet(btn_style)
         self.mirror_h_btn.clicked.connect(lambda: self.canvas.mirror_image(True, False))
         right_panel.addWidget(self.mirror_h_btn)
         
@@ -141,7 +121,6 @@ class MainWindow(QMainWindow):
         self.mirror_v_btn.setFixedSize(60, 45)
         self.mirror_v_btn.setToolTip("Flip Vertical (V)")
         self.mirror_v_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.mirror_v_btn.setStyleSheet(btn_style)
         self.mirror_v_btn.clicked.connect(lambda: self.canvas.mirror_image(False, True))
         right_panel.addWidget(self.mirror_v_btn)
         
@@ -151,7 +130,10 @@ class MainWindow(QMainWindow):
         self.reset_btn.setFixedSize(60, 45)
         self.reset_btn.setToolTip("Reset Crop and Transforms (L)")
         self.reset_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.reset_btn.setStyleSheet(btn_style + "font-size: 10px; font-weight: bold;")
+        reset_font = QFont(self.reset_btn.font())
+        reset_font.setPointSize(10)
+        reset_font.setBold(True)
+        self.reset_btn.setFont(reset_font)
         self.reset_btn.clicked.connect(self.reset_current_image)
         right_panel.addWidget(self.reset_btn)
         
