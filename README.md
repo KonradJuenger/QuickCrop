@@ -4,6 +4,10 @@ QuickCrop is a desktop tool for preparing images for social media with consisten
 
 ![QuickCrop Screenshot](resources/jfJFxJAUdk.png)
 
+## Pre-release 
+
+QuickCrop is currently in pre-release beta. Features and behavior may change, and some issues are still being polished.
+
 ## Features
 
 - **Batch Cropping**: Apply one consistent crop ratio across all loaded images.
