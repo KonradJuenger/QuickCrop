@@ -3,6 +3,7 @@ from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QInputDialog, QMessageBox)
 from PySide6.QtCore import Qt, QSize, QTimer
 from PySide6.QtGui import QIcon, QFont
+import platform
 from core.paths import get_resource_path
 from ui.image_list import ImageList
 from ui.camera_roll import CameraRoll
@@ -33,7 +34,7 @@ class MainWindow(QMainWindow):
         
         # Settings
         from PySide6.QtCore import QSettings
-        self.settings = QSettings("KonradJuenger", "QuickCrop")
+        self.settings = QSettings("QuickCrop", "QuickCrop")
         self.output_dir = self.settings.value("output_dir", "")
         
         # State tracking (Toolbar related)
@@ -83,11 +84,15 @@ class MainWindow(QMainWindow):
         self.editor_layout.addLayout(right_panel)
         
         icon_size = QSize(24, 24)
+        if platform.system() == "Darwin":
+            tool_button_size = QSize(76, 42)
+        else:
+            tool_button_size = QSize(64, 42)
         
         self.rotate_r_btn = QPushButton()
         self.rotate_r_btn.setIcon(QIcon(get_resource_path("resources/rotate_cw.svg")))
         self.rotate_r_btn.setIconSize(icon_size)
-        self.rotate_r_btn.setFixedSize(60, 45)
+        self.rotate_r_btn.setFixedSize(tool_button_size)
         self.rotate_r_btn.setToolTip("90° CW")
         self.rotate_r_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.rotate_r_btn.clicked.connect(lambda: self.canvas.rotate_image(90, snap_to_largest=True))
@@ -96,7 +101,7 @@ class MainWindow(QMainWindow):
         self.rotate_l_btn = QPushButton()
         self.rotate_l_btn.setIcon(QIcon(get_resource_path("resources/rotate_ccw.svg")))
         self.rotate_l_btn.setIconSize(icon_size)
-        self.rotate_l_btn.setFixedSize(60, 45)
+        self.rotate_l_btn.setFixedSize(tool_button_size)
         self.rotate_l_btn.setToolTip("90° CCW")
         self.rotate_l_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.rotate_l_btn.clicked.connect(lambda: self.canvas.rotate_image(-90, snap_to_largest=True))
@@ -105,7 +110,7 @@ class MainWindow(QMainWindow):
         self.rotate_180_btn = QPushButton()
         self.rotate_180_btn.setIcon(QIcon(get_resource_path("resources/rotate_180.svg")))
         self.rotate_180_btn.setIconSize(icon_size)
-        self.rotate_180_btn.setFixedSize(60, 45)
+        self.rotate_180_btn.setFixedSize(tool_button_size)
         self.rotate_180_btn.setToolTip("Rotate 180°")
         self.rotate_180_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.rotate_180_btn.clicked.connect(lambda: self.canvas.rotate_image(180, snap_to_largest=True))
@@ -116,7 +121,7 @@ class MainWindow(QMainWindow):
         self.mirror_h_btn = QPushButton()
         self.mirror_h_btn.setIcon(QIcon(get_resource_path("resources/mirror_h.svg")))
         self.mirror_h_btn.setIconSize(icon_size)
-        self.mirror_h_btn.setFixedSize(60, 45)
+        self.mirror_h_btn.setFixedSize(tool_button_size)
         self.mirror_h_btn.setToolTip("Flip Horizontal (H)")
         self.mirror_h_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.mirror_h_btn.clicked.connect(lambda: self.canvas.mirror_image(True, False))
@@ -125,7 +130,7 @@ class MainWindow(QMainWindow):
         self.mirror_v_btn = QPushButton()
         self.mirror_v_btn.setIcon(QIcon(get_resource_path("resources/mirror_v.svg")))
         self.mirror_v_btn.setIconSize(icon_size)
-        self.mirror_v_btn.setFixedSize(60, 45)
+        self.mirror_v_btn.setFixedSize(tool_button_size)
         self.mirror_v_btn.setToolTip("Flip Vertical (V)")
         self.mirror_v_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.mirror_v_btn.clicked.connect(lambda: self.canvas.mirror_image(False, True))
@@ -134,7 +139,7 @@ class MainWindow(QMainWindow):
         right_panel.addSpacing(10)
         
         self.reset_btn = QPushButton("Reset")
-        self.reset_btn.setFixedSize(60, 45)
+        self.reset_btn.setFixedSize(tool_button_size)
         self.reset_btn.setToolTip("Reset Crop and Transforms (L)")
         self.reset_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         reset_font = QFont(self.reset_btn.font())
@@ -147,13 +152,13 @@ class MainWindow(QMainWindow):
         right_panel.addSpacing(20)
         
         self.skip_btn = QPushButton("Skip")
-        self.skip_btn.setFixedSize(60, 40)
+        self.skip_btn.setFixedSize(tool_button_size)
         self.skip_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.skip_btn.clicked.connect(self._toggle_skip_current)
         right_panel.addWidget(self.skip_btn)
         
         self.remove_btn = QPushButton("Remove")
-        self.remove_btn.setFixedSize(60, 40)
+        self.remove_btn.setFixedSize(tool_button_size)
         self.remove_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.remove_btn.clicked.connect(self._remove_current)
         right_panel.addWidget(self.remove_btn)
@@ -284,7 +289,7 @@ class MainWindow(QMainWindow):
 
         # Arrange + Export Action
         self.arrange_btn = QPushButton("Arrange + Export")
-        self.arrange_btn.setFixedSize(120, 30)
+        self.arrange_btn.setFixedSize(145, 30)
         self.arrange_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.arrange_btn.clicked.connect(lambda: self.toggle_arrange_mode(True))
         layout.addWidget(self.arrange_btn)
