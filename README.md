@@ -1,12 +1,13 @@
 # QuickCrop
 
-QuickCrop is a desktop tool for preparing images for social media. It provides interactive cropping, batch processing, and organization features.
+QuickCrop is a desktop tool for preparing images for social media with consistent batch cropping. It lets you apply the same crop ratio across all images, with interactive controls, batch processing, and organization features.
 
 ![QuickCrop Screenshot](resources/jfJFxJAUdk.png)
 
 ## Features
 
-- **Interactive Cropping**:  1:1, 4:5, 9:16, 4:3, and 3:4 
+- **Batch Cropping**: Apply one consistent crop ratio across all loaded images.
+- crops with preset ratios or custom ratios.
 - **Preview Mode**: View the final cropped result instantly.
 - **Arrange Mode**: A grid view to reorder images via drag-and-drop, review batch thumbnails, and bulk rename files.
 - **Image Transformations**: Rotate and mirror images.
@@ -33,15 +34,23 @@ QuickCrop is a desktop tool for preparing images for social media. It provides i
 | `L` | Reset crop to default |
 | `Backspace` / `O` | Remove image from the current list |
 
-## Installation
+## Download Program
 
-### Using [uv](https://github.com/astral-sh/uv) (Recommended)
+If you just want to use QuickCrop (no Python setup), download the app package directly:
+Mac:
+- https://github.com/KonradJuenger/QuickCrop/releases/download/v0.0.1-beta/QuickCrop.app.zip
+Win:
+- https://github.com/KonradJuenger/QuickCrop/releases/download/v0.0.1-beta/QuickCrop.app.zip
+
+## Installation via Python 
+
+### with [uv](https://github.com/astral-sh/uv)
 
 ```bash
 uv run main.py
 ```
 
-### Using pip
+###  with pip
 
 ```bash
 # Install dependencies
@@ -51,7 +60,7 @@ pip install -r requirements.txt
 python main.py
 ```
 
-## Distribution
+## Building
 
 To build a standalone executable:
 
