@@ -9,7 +9,7 @@ from core.image_cache import ImageCache
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Instagram Crop Tool")
+        self.setWindowTitle("QuickCrop")
         self.resize(1200, 800)
 
         # Central Widget (Sort of, actually using Layouts)
@@ -23,7 +23,7 @@ class MainWindow(QMainWindow):
         
         # Settings
         from PyQt6.QtCore import QSettings
-        self.settings = QSettings("Konrad", "InstagramCropTool")
+        self.settings = QSettings("KonradJuenger", "QuickCrop")
         self.output_dir = self.settings.value("output_dir", "")
         
         # State tracking (Toolbar related)

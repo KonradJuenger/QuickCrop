@@ -1,6 +1,6 @@
 # Quick Crop
 
-Quick Crop is a desktop tool for preparing images for Instagram. It provides interactive cropping, batch processing, and organization features.
+QuickCrop is a desktop tool for preparing images for social media. It provides interactive cropping, batch processing, and organization features.
 
 ## Features
 

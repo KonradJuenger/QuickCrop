@@ -1,7 +1,7 @@
 [project]
 name = "quick-crop"
 version = "0.1.0"
-description = "A lightweight desktop tool for fast, interactive image cropping optimized for Instagram."
+description = "A lightweight desktop tool for fast, interactive image cropping optimized for social media."
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
