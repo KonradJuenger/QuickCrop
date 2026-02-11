@@ -43,6 +43,8 @@ class Canvas(QGraphicsView):
         self.last_mouse_pos = QPoint()
         self.rotation_start_angle = 0.0
         self.rotation_start_mouse_angle = 0.0
+        self._rotation_pivot_local = None  # Fixed pivot in pixmap-local coords during drag
+        self._rotation_pre_drag_crop_w = None  # Crop pixel width at drag start (for grow-back)
         
         self.overlay_color = QColor(0, 0, 0, 150)
         self.handle_size = 12
@@ -113,14 +115,20 @@ class Canvas(QGraphicsView):
         self.resetTransform()
         
         vp = self.viewport().rect()
+        if vp.width() <= 10 or vp.height() <= 10: # Minimum reasonable viewport
+            return
+
         # Use 0.95 to make the border half as wide as the previous 0.90
         scale_factor = 0.95
         target_w = vp.width() * scale_factor
         target_h = vp.height() * scale_factor
         
-        scale_w = target_w / rect.width()
-        scale_h = target_h / rect.height()
+        scale_w = target_w / max(1.0, rect.width())
+        scale_h = target_h / max(1.0, rect.height())
         scale = min(scale_w, scale_h)
+        
+        # Prevent extreme scaling that could lead to floating point issues
+        scale = max(1e-6, min(1e6, scale))
         
         self.scale(scale, scale)
         
@@ -130,6 +138,10 @@ class Canvas(QGraphicsView):
     def update_fitting(self):
         """Refresh the scale and center based on current preview_mode."""
         if not self.pixmap_item:
+            return
+            
+        vp = self.viewport().rect()
+        if vp.width() <= 10 or vp.height() <= 10:
             return
             
         if self.preview_mode:
@@ -144,6 +156,7 @@ class Canvas(QGraphicsView):
             self._fit_to_viewport(self.scene_crop_rect_for_preview)
         else:
             self._fit_to_viewport()
+            # Force viewport transform update before syncing crop
             self.sync_crop_to_viewport()
         
         self.viewport().update()
@@ -166,13 +179,20 @@ class Canvas(QGraphicsView):
         """Update self.norm_crop_rect from self.crop_rect."""
         if not self.pixmap_item: return
         img_vp = self._image_rect_in_viewport()
-        if img_vp.width() == 0 or img_vp.height() == 0: return
+        if img_vp.width() < 1.0 or img_vp.height() < 1.0: return
         
         nx = (self.crop_rect.x() - img_vp.x()) / img_vp.width()
         ny = (self.crop_rect.y() - img_vp.y()) / img_vp.height()
         nw = self.crop_rect.width() / img_vp.width()
         nh = self.crop_rect.height() / img_vp.height()
-        self.norm_crop_rect = (nx, ny, nw, nh)
+        
+        # Clamp normalized coordinates to reasonable range to prevent overflow in loader
+        import math
+        def clamp_norm(v):
+            if not math.isfinite(v): return 0.0
+            return max(-10.0, min(10.0, float(v)))
+            
+        self.norm_crop_rect = (clamp_norm(nx), clamp_norm(ny), clamp_norm(nw), clamp_norm(nh))
 
     # ---- Crop rect ----
     def reset_crop_rect(self):
@@ -358,20 +378,43 @@ class Canvas(QGraphicsView):
         painter.restore()
 
     # ---- Transforms: rotate / mirror ----
-    def rotate_image(self, angle):
+    def rotate_image(self, angle, mouse_pos=None, absolute=False, snap_to_largest=False):
+        """Rotate the image.
+        
+        If absolute=True, `angle` is the target rotation_angle directly.
+        If absolute=False (default, used by 90° buttons), `angle` is a delta.
+        """
         if not self.pixmap_item:
             return
-            
-        # Rotate around crop center
-        cr_center_s = self.mapToScene(self.crop_rect.center().toPoint())
-        cr_center_l = self.pixmap_item.mapFromScene(cr_center_s)
         
-        self.pixmap_item.setTransformOriginPoint(cr_center_l)
-        self.rotation_angle += angle
+        if absolute:
+            target_angle = angle
+        else:
+            target_angle = self.rotation_angle + angle
+        
+        # Determine the pivot in local (pixmap) coordinates.
+        # During interactive drag, use the locked local pivot directly;
+        # otherwise recompute from the current crop center.
+        if self._rotation_pivot_local is not None:
+            pivot_local = self._rotation_pivot_local
+        else:
+            vt_inv = self.viewportTransform().inverted()[0]
+            cr_center_s = vt_inv.map(self.crop_rect.center())
+            pivot_local = self.pixmap_item.mapFromScene(cr_center_s)
+        
+        self.pixmap_item.setTransformOriginPoint(pivot_local)
+        self.rotation_angle = target_angle
         self.pixmap_item.setRotation(self.rotation_angle)
         
-        # Shrink crop to fit within rotated image bounds
-        self._shrink_crop_to_fit()
+        # Update scene rect and refit view to accommodate new orientation
+        self._update_scene_rect()
+        self.update_fitting()
+        
+        # Fit / shrink crop to remain inside the rotated image.
+        if snap_to_largest:
+            self.reset_crop_rect()
+        else:
+            self._shrink_crop_to_fit()
         
         self.sync_crop_from_viewport()
         self._update_handles()
@@ -379,25 +422,66 @@ class Canvas(QGraphicsView):
         self.viewport().update()
     
     def _shrink_crop_to_fit(self):
-        """Uniformly shrink the crop rect around its center until it fits within the rotated image."""
+        """Uniformly scale the crop rect around its center to fit within the rotated image.
+        
+        This can both *shrink* (if the crop overflows) and *grow back* (if the
+        pre-drag crop size would now fit, e.g. when rotating back toward 0°).
+        """
         if not self.pixmap_item:
             return
-        if self._is_crop_valid(self.crop_rect):
-            return  # Already valid, nothing to do
         
         center = self.crop_rect.center()
-        w = self.crop_rect.width()
-        h = self.crop_rect.height()
         
-        # Binary search for the largest scale that fits
-        low = 0.1
+        # Determine the "goal" width: pre-drag pixel width if available,
+        # otherwise the current crop width. Always derive height from
+        # aspect_ratio to avoid distortion.
+        if self._rotation_pre_drag_crop_w is not None:
+            goal_w = self._rotation_pre_drag_crop_w
+        else:
+            goal_w = self.crop_rect.width()
+        goal_w = max(20.0, goal_w)
+        goal_h = goal_w / self.aspect_ratio
+        
+        # If the center is outside the image polygon, slide it towards
+        # the polygon centroid just enough to be inside.
+        if not self._is_crop_valid(QRectF(center.x()-0.5, center.y()-0.5, 1.0, 1.0)):
+            vt = self.viewportTransform()
+            img_poly_s = self.pixmap_item.mapToScene(self.pixmap_item.boundingRect())
+            img_poly_vp = vt.map(img_poly_s)
+            poly_center = img_poly_vp.boundingRect().center()
+            
+            # Binary-search along center→poly_center for the first valid point
+            lo_t, hi_t = 0.0, 1.0
+            for _ in range(20):
+                mid_t = (lo_t + hi_t) / 2
+                test_pt = QPointF(
+                    center.x() + (poly_center.x() - center.x()) * mid_t,
+                    center.y() + (poly_center.y() - center.y()) * mid_t,
+                )
+                if self._is_crop_valid(QRectF(test_pt.x()-0.5, test_pt.y()-0.5, 1.0, 1.0)):
+                    hi_t = mid_t
+                else:
+                    lo_t = mid_t
+            center = QPointF(
+                center.x() + (poly_center.x() - center.x()) * hi_t,
+                center.y() + (poly_center.y() - center.y()) * hi_t,
+            )
+        
+        # If the goal size already fits, just use it directly
+        goal_rect = QRectF(center.x() - goal_w/2, center.y() - goal_h/2, goal_w, goal_h)
+        if self._is_crop_valid(goal_rect):
+            self.crop_rect = goal_rect
+            return
+        
+        # Binary search for the largest scale ∈ (0, 1] of goal_size that fits
+        low = 0.0
         high = 1.0
         best = low
         
         for _ in range(20):
             mid = (low + high) / 2
-            test_w = w * mid
-            test_h = h * mid
+            test_w = max(20.0, goal_w * mid)
+            test_h = test_w / self.aspect_ratio  # Always maintain AR
             test_rect = QRectF(center.x() - test_w/2, center.y() - test_h/2, test_w, test_h)
             if self._is_crop_valid(test_rect):
                 best = mid
@@ -405,8 +489,8 @@ class Canvas(QGraphicsView):
             else:
                 high = mid
         
-        final_w = w * best
-        final_h = h * best
+        final_w = max(20.0, goal_w * best)
+        final_h = final_w / self.aspect_ratio  # Always maintain AR
         self.crop_rect = QRectF(center.x() - final_w/2, center.y() - final_h/2, final_w, final_h)
 
     def get_transform_state(self):
@@ -443,6 +527,23 @@ class Canvas(QGraphicsView):
         self._update_scene_rect()
         self._fit_to_viewport()
         # Note: caller should restore crop rect after this
+
+    def reset_transforms(self):
+        """Reset rotation to 0 and remove all flips."""
+        if not self.pixmap_item:
+            return
+            
+        self.rotation_angle = 0.0
+        center = self.pixmap_item.boundingRect().center()
+        self.pixmap_item.setTransformOriginPoint(center)
+        self.pixmap_item.setRotation(0.0)
+        self.pixmap_item.setTransform(QTransform())
+        
+        self._update_scene_rect()
+        self.update_fitting()
+        self.viewport().update()
+        self.sync_crop_from_viewport()
+        self.crop_changed.emit()
 
     def mirror_image(self, horz, vert):
         if not self.pixmap_item:
@@ -538,6 +639,12 @@ class Canvas(QGraphicsView):
                     dp = pos_f - self.crop_rect.center()
                     import math
                     self.rotation_start_mouse_angle = math.degrees(math.atan2(dp.y(), dp.x()))
+                    # Lock the pivot in pixmap-LOCAL coords so it's stable under rotation
+                    vt_inv = self.viewportTransform().inverted()[0]
+                    cr_center_s = vt_inv.map(self.crop_rect.center())
+                    self._rotation_pivot_local = self.pixmap_item.mapFromScene(cr_center_s)
+                    # Remember pre-drag crop pixel width so we can grow back
+                    self._rotation_pre_drag_crop_w = self.crop_rect.width()
                     self.last_mouse_pos = pos
                     return
             
@@ -595,11 +702,26 @@ class Canvas(QGraphicsView):
             self.viewport().update()
         elif self.interaction_mode == "ROTATE":
             import math
-            dp = pos_f - self.crop_rect.center()
+            # Use the LOCKED local pivot mapped back to viewport for angle computation
+            if self._rotation_pivot_local is not None:
+                pivot_scene = self.pixmap_item.mapToScene(self._rotation_pivot_local)
+                pivot_vp = self.mapFromScene(pivot_scene)
+                pivot_pt = QPointF(pivot_vp.x(), pivot_vp.y()) if isinstance(pivot_vp, QPoint) else QPointF(pivot_vp)
+            else:
+                pivot_pt = self.crop_rect.center()
+            
+            dp = pos_f - pivot_pt
             current_mouse_angle = math.degrees(math.atan2(dp.y(), dp.x()))
             diff = current_mouse_angle - self.rotation_start_mouse_angle
-            self.rotate_image(diff)
-            self.rotation_start_mouse_angle = current_mouse_angle
+            
+            # Handle atan2 wrap-around at ±180
+            if diff > 180: diff -= 360
+            elif diff < -180: diff += 360
+            
+            target_angle = self.rotation_start_angle + diff
+            self.rotate_image(target_angle, mouse_pos=pos, absolute=True)
+            # Do NOT recalculate rotation_start_mouse_angle — the pivot is fixed.
+            
             self.viewport().update()
         else:
             # Hover cursor
@@ -625,33 +747,43 @@ class Canvas(QGraphicsView):
             return
         self.interaction_mode = "NONE"
         self.active_handle = None
+        # Clear drag-local rotation state
+        self._rotation_pivot_local = None
+        self._rotation_pre_drag_crop_w = None
         self.setCursor(Qt.CursorShape.ArrowCursor)
         super().mouseReleaseEvent(event)
 
     def _is_crop_valid(self, rect_vp):
-        """Check if the given crop rect in viewport is within the rotated image polygon."""
+        """Check if the given crop rect in viewport is within the rotated image path."""
         if not self.pixmap_item:
             return True
             
-        # Get image polygon in scene coordinates (this is a rotated quadrilateral)
+        # Get image boundary in scene coordinates as a QPainterPath for robustness
         img_poly_s = self.pixmap_item.mapToScene(self.pixmap_item.boundingRect())
+        path = QPainterPath()
+        path.addPolygon(img_poly_s)
+        
+        # Add a tiny 0.1 pixel buffer to the image path to handle float precision near 90/180/270
+        # Actually, let's just use the path as is but ensure points are mapped correctly
         
         # Inset the crop rect by a small margin to avoid edge precision issues
-        margin = 2.0
+        margin = 1.0
         inset_rect = rect_vp.adjusted(margin, margin, -margin, -margin)
         
-        # Get crop corners in scene using float-based mapping
-        # Map each corner individually to avoid QRect integer truncation
+        # Map each corner individually using the full viewport transform
         corners_vp = [
             inset_rect.topLeft(),
             inset_rect.topRight(),
             inset_rect.bottomRight(),
             inset_rect.bottomLeft(),
+            inset_rect.center() # Definitely check the center too
         ]
         
+        vt_inv = self.viewportTransform().inverted()[0]
+        
         for corner in corners_vp:
-            scene_pt = self.mapToScene(corner.toPoint())
-            if not img_poly_s.containsPoint(scene_pt, Qt.FillRule.WindingFill):
+            scene_pt = vt_inv.map(corner)
+            if not path.contains(scene_pt):
                 return False
         return True
 

@@ -53,12 +53,26 @@ class ThumbnailLoader(QRunnable):
                     nx, ny, nw, nh = self.crop_rect
                     
                     # Clamp crop to image bounds
-                    rect = QRect(
-                        int(max(0, nx * w)),
-                        int(max(0, ny * h)),
-                        int(min(w, nw * w)),
-                        int(min(h, nh * h))
-                    )
+                    try:
+                        import math
+                        # Ensure values are finite and not ridiculous
+                        def sanitize(v):
+                            if not math.isfinite(v): return 0.0
+                            return max(-100.0, min(100.0, float(v)))
+                        
+                        nx = sanitize(nx)
+                        ny = sanitize(ny)
+                        nw = sanitize(nw)
+                        nh = sanitize(nh)
+                        
+                        rect = QRect(
+                            int(max(0, nx * w)),
+                            int(max(0, ny * h)),
+                            int(min(w, nw * w)),
+                            int(min(h, nh * h))
+                        )
+                    except (OverflowError, ValueError):
+                        rect = QRect()
                     if rect.isValid():
                         image = image.copy(rect)
 

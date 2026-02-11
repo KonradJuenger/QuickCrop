@@ -1,6 +1,8 @@
 from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QDockWidget, QToolBar, QComboBox, QPushButton, QFileDialog, QFrame)
 from PySide6.QtCore import Qt, QSize, QTimer
+from PySide6.QtGui import QIcon
+from core.paths import get_resource_path
 from ui.image_list import ImageList
 from ui.camera_roll import CameraRoll
 from ui.canvas import Canvas
@@ -10,6 +12,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("QuickCrop")
+        self.setWindowIcon(QIcon(get_resource_path("resources/quickcrop_icon.svg")))
         self.resize(1200, 800)
 
         # Central Widget (Sort of, actually using Layouts)
@@ -72,31 +75,85 @@ class MainWindow(QMainWindow):
         right_panel = QVBoxLayout()
         self.editor_layout.addLayout(right_panel)
         
-        self.rotate_l_btn = QPushButton("Rot L")
-        self.rotate_l_btn.setFixedSize(60, 40)
+        btn_style = """
+            QPushButton {
+                background-color: #f8f9fa;
+                border: 1px solid #dee2e6;
+                border-radius: 4px;
+                padding: 5px;
+            }
+            QPushButton:hover {
+                background-color: #e9ecef;
+                border-color: #adb5bd;
+            }
+            QPushButton:pressed {
+                background-color: #dee2e6;
+            }
+        """
+        
+        icon_size = QSize(24, 24)
+        
+        self.rotate_l_btn = QPushButton()
+        self.rotate_l_btn.setIcon(QIcon(get_resource_path("resources/rotate_ccw.svg")))
+        self.rotate_l_btn.setIconSize(icon_size)
+        self.rotate_l_btn.setFixedSize(60, 45)
+        self.rotate_l_btn.setToolTip("Rotate Counter-Clockwise (L)")
         self.rotate_l_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.rotate_l_btn.clicked.connect(lambda: self.canvas.rotate_image(-90))
+        self.rotate_l_btn.setStyleSheet(btn_style)
+        self.rotate_l_btn.clicked.connect(lambda: self.canvas.rotate_image(-90, snap_to_largest=True))
         right_panel.addWidget(self.rotate_l_btn)
         
-        self.rotate_r_btn = QPushButton("Rot R")
-        self.rotate_r_btn.setFixedSize(60, 40)
+        self.rotate_r_btn = QPushButton()
+        self.rotate_r_btn.setIcon(QIcon(get_resource_path("resources/rotate_cw.svg")))
+        self.rotate_r_btn.setIconSize(icon_size)
+        self.rotate_r_btn.setFixedSize(60, 45)
+        self.rotate_r_btn.setToolTip("Rotate Clockwise (R)")
         self.rotate_r_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.rotate_r_btn.clicked.connect(lambda: self.canvas.rotate_image(90))
+        self.rotate_r_btn.setStyleSheet(btn_style)
+        self.rotate_r_btn.clicked.connect(lambda: self.canvas.rotate_image(90, snap_to_largest=True))
         right_panel.addWidget(self.rotate_r_btn)
         
-        right_panel.addSpacing(20)
+        self.rotate_180_btn = QPushButton()
+        self.rotate_180_btn.setIcon(QIcon(get_resource_path("resources/rotate_180.svg")))
+        self.rotate_180_btn.setIconSize(icon_size)
+        self.rotate_180_btn.setFixedSize(60, 45)
+        self.rotate_180_btn.setToolTip("Rotate 180°")
+        self.rotate_180_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.rotate_180_btn.setStyleSheet(btn_style)
+        self.rotate_180_btn.clicked.connect(lambda: self.canvas.rotate_image(180, snap_to_largest=True))
+        right_panel.addWidget(self.rotate_180_btn)
         
-        self.mirror_h_btn = QPushButton("Flip H")
-        self.mirror_h_btn.setFixedSize(60, 40)
+        right_panel.addSpacing(10)
+        
+        self.mirror_h_btn = QPushButton()
+        self.mirror_h_btn.setIcon(QIcon(get_resource_path("resources/mirror_h.svg")))
+        self.mirror_h_btn.setIconSize(icon_size)
+        self.mirror_h_btn.setFixedSize(60, 45)
+        self.mirror_h_btn.setToolTip("Flip Horizontal (H)")
         self.mirror_h_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.mirror_h_btn.setStyleSheet(btn_style)
         self.mirror_h_btn.clicked.connect(lambda: self.canvas.mirror_image(True, False))
         right_panel.addWidget(self.mirror_h_btn)
         
-        self.mirror_v_btn = QPushButton("Flip V")
-        self.mirror_v_btn.setFixedSize(60, 40)
+        self.mirror_v_btn = QPushButton()
+        self.mirror_v_btn.setIcon(QIcon(get_resource_path("resources/mirror_v.svg")))
+        self.mirror_v_btn.setIconSize(icon_size)
+        self.mirror_v_btn.setFixedSize(60, 45)
+        self.mirror_v_btn.setToolTip("Flip Vertical (V)")
         self.mirror_v_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.mirror_v_btn.setStyleSheet(btn_style)
         self.mirror_v_btn.clicked.connect(lambda: self.canvas.mirror_image(False, True))
         right_panel.addWidget(self.mirror_v_btn)
+        
+        right_panel.addSpacing(10)
+        
+        self.reset_btn = QPushButton("Reset All")
+        self.reset_btn.setFixedSize(60, 45)
+        self.reset_btn.setToolTip("Reset Crop and Transforms (L)")
+        self.reset_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.reset_btn.setStyleSheet(btn_style + "font-size: 10px; font-weight: bold;")
+        self.reset_btn.clicked.connect(self.reset_current_image)
+        right_panel.addWidget(self.reset_btn)
         
         right_panel.addSpacing(20)
         
@@ -817,6 +874,26 @@ class MainWindow(QMainWindow):
             font.setStrikeOut(True)
             item.setFont(font)
             item.setForeground(Qt.GlobalColor.gray)
+
+    def reset_current_image(self):
+        if self.current_image_path:
+            # Reset canvas transforms and crop
+            self.canvas.reset_transforms()
+            self.canvas.reset_crop_rect()
+            
+            # Update internal data
+            if self.current_image_path in self.image_data:
+                data = self.image_data[self.current_image_path]
+                data['rotation'] = 0.0
+                data['flip_h'] = False
+                data['flip_v'] = False
+                data['crop'] = self.canvas.get_normalized_crop_rect()
+                data['touched'] = True
+            
+            # Refresh UI
+            self._refresh_thumbnail()
+            self.canvas.update_fitting()
+            self.canvas.update()
 
     def sync_selection(self, path):
         if path not in self.path_to_index:
