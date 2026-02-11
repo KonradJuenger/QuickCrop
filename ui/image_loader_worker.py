@@ -1,15 +1,16 @@
-from PyQt6.QtCore import QRunnable, pyqtSignal, QObject, QSize
-from PyQt6.QtGui import QImage, QImageReader, QImageIOHandler
+from PySide6.QtCore import QRunnable, Signal, QObject, QSize
+from PySide6.QtGui import QImage, QImageReader, QImageIOHandler
 
 class LoaderSignals(QObject):
-    finished = pyqtSignal(str, QImage, bool) # path, image, is_full_quality
-    error = pyqtSignal(str, str)
+    finished = Signal(str, QImage, bool) # path, image, is_full_quality
+    error = Signal(str, str)
 
 class ImageLoaderWorker(QRunnable):
-    def __init__(self, path, max_dim=None):
+    def __init__(self, path, max_dim=None, is_proxy=False):
         super().__init__()
         self.path = path
         self.max_dim = max_dim
+        self.is_proxy = is_proxy
         self.signals = LoaderSignals()
 
     def run(self):
@@ -37,8 +38,8 @@ class ImageLoaderWorker(QRunnable):
                 if logical_size.width() > self.max_dim or logical_size.height() > self.max_dim:
                     scale = self.max_dim / max(logical_size.width(), logical_size.height())
                     
-                    # setScaledSize applies to RAW data, so we scale orig_size
-                    new_raw_size = orig_size * scale
+                    # Create new size with integer components explicitly
+                    new_raw_size = QSize(int(orig_size.width() * scale), int(orig_size.height() * scale))
                     reader.setScaledSize(new_raw_size)
                     is_full = False
             

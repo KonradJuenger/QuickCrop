@@ -1,9 +1,9 @@
-from PyQt6.QtCore import QObject, pyqtSignal, QThreadPool
-from PyQt6.QtGui import QImage
+from PySide6.QtCore import QObject, Signal, QThreadPool
+from PySide6.QtGui import QImage
 from ui.image_loader_worker import ImageLoaderWorker
 
 class ImageCache(QObject):
-    image_ready = pyqtSignal(str, QImage, bool) # path, image, is_full
+    image_ready = Signal(str, QImage, bool) # path, image, is_full
     
     def __init__(self, proxy_window=10, proxy_size=2560):
         super().__init__()
@@ -15,6 +15,7 @@ class ImageCache(QObject):
         
         self.thread_pool = QThreadPool.globalInstance()
         self.loading_paths = set() # (path, is_proxy)
+        self.active_workers = {}   # (path, is_proxy) -> worker
         
     def get_image(self, path):
         """Returns (image, is_full) if cached, otherwise (None, False)."""
@@ -75,18 +76,26 @@ class ImageCache(QObject):
         self.loading_paths.add(load_key)
         
         max_dim = self.proxy_size if is_proxy else None
-        worker = ImageLoaderWorker(path, max_dim=max_dim)
+        worker = ImageLoaderWorker(path, max_dim=max_dim, is_proxy=is_proxy)
         
-        # Capture is_proxy in the signal handler via lambda
-        worker.signals.finished.connect(lambda p, img, full, ip=is_proxy: self._on_load_finished(p, img, full, ip))
-        worker.signals.error.connect(lambda p, err, ip=is_proxy: self._on_load_error(p, err, ip))
+        # Keep reference to prevent GC in PySide6
+        self.active_workers[load_key] = worker
+        
+        # Connect signals
+        worker.signals.finished.connect(self._on_load_finished)
+        worker.signals.error.connect(self._on_load_error)
         
         self.thread_pool.start(worker)
 
-    def _on_load_finished(self, path, image, is_full_quality, requested_proxy):
-        load_key = (path, requested_proxy)
-        if load_key in self.loading_paths:
-            self.loading_paths.remove(load_key)
+    def _on_load_finished(self, path, image, is_full_quality):
+        # Infer is_proxy (since we don't have it in signal)
+        # Check both full and proxy just in case
+        for requested_proxy in [True, False]:
+            load_key = (path, requested_proxy)
+            if load_key in self.active_workers:
+                del self.active_workers[load_key]
+            if load_key in self.loading_paths:
+                self.loading_paths.remove(load_key)
             
         if is_full_quality:
             self.full_images[path] = image
@@ -95,11 +104,14 @@ class ImageCache(QObject):
             
         self.image_ready.emit(path, image, is_full_quality)
 
-    def _on_load_error(self, path, error_msg, requested_proxy):
-        print(f"Error loading {path} (proxy={requested_proxy}): {error_msg}")
-        load_key = (path, requested_proxy)
-        if load_key in self.loading_paths:
-            self.loading_paths.remove(load_key)
+    def _on_load_error(self, path, error_msg):
+        for requested_proxy in [True, False]:
+            load_key = (path, requested_proxy)
+            if load_key in self.active_workers:
+                del self.active_workers[load_key]
+            if load_key in self.loading_paths:
+                self.loading_paths.remove(load_key)
+        print(f"Error loading {path}: {error_msg}")
 
     def clear(self):
         self.proxies.clear()

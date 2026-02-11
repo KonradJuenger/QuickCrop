@@ -1,11 +1,11 @@
-from PyQt6.QtCore import Qt, QRectF, QPoint, QPointF, QSize, pyqtSignal, QTimer
-from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QPainterPath, QTransform
-from PyQt6.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QFrame
+from PySide6.QtCore import Qt, QRectF, QPoint, QPointF, QSize, Signal, QTimer
+from PySide6.QtGui import QPainter, QColor, QPen, QBrush, QPainterPath, QTransform
+from PySide6.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsPixmapItem, QFrame
 
 class Canvas(QGraphicsView):
-    crop_changed = pyqtSignal()
-    preview_toggled = pyqtSignal(bool)
-    navigation_requested = pyqtSignal(int)  # -1 for prev, 1 for next
+    crop_changed = Signal()
+    preview_toggled = Signal(bool)
+    navigation_requested = Signal(int)  # -1 for prev, 1 for next
     
     def __init__(self):
         super().__init__()

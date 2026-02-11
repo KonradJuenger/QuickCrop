@@ -1,13 +1,13 @@
-from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QProgressBar, QLabel, 
+from PySide6.QtWidgets import (QDialog, QVBoxLayout, QProgressBar, QLabel, 
                              QPushButton, QHBoxLayout)
-from PyQt6.QtCore import Qt, pyqtSignal, QThread
+from PySide6.QtCore import Qt, Signal, QThread
 import os
 from core.processor import process_image
 
 class ProcessingWorker(QThread):
-    progress = pyqtSignal(int, str)  # current index, filename
-    finished = pyqtSignal(int, str)  # total processed, output directory
-    error = pyqtSignal(str)          # error message
+    progress = Signal(int, str)  # current index, filename
+    finished = Signal(int, str)  # total processed, output directory
+    error = Signal(str)          # error message
 
     def __init__(self, tasks, downsample, target_res, res_mode):
         super().__init__()

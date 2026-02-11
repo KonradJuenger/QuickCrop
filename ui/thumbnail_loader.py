@@ -1,8 +1,8 @@
-from PyQt6.QtCore import QRunnable, pyqtSignal, QObject, QMetaObject, Qt, QSize, QRect, QRectF
-from PyQt6.QtGui import QImage, QImageReader, QColor, QPainter, QImageIOHandler, QTransform
+from PySide6.QtCore import QRunnable, Signal, QObject, QMetaObject, Qt, QSize, QRect, QRectF
+from PySide6.QtGui import QImage, QImageReader, QColor, QPainter, QImageIOHandler, QTransform
 
 class LoaderSignals(QObject):
-    finished = pyqtSignal(str, QImage)
+    finished = Signal(str, QImage)
 
 class ThumbnailLoader(QRunnable):
     def __init__(self, path, size=(100, 100), crop_rect=None, rotation=0, flip_h=False, flip_v=False):
@@ -25,8 +25,8 @@ class ThumbnailLoader(QRunnable):
             # For thumbnails, we want them to be crisp. 
             # We'll load at 2x the requested size for high-DPI/sharper look.
             quality_multiplier = 2
-            target_w = self.size[0] * quality_multiplier
-            target_h = self.size[1] * quality_multiplier
+            target_w = int(self.size[0] * quality_multiplier)
+            target_h = int(self.size[1] * quality_multiplier)
 
             # If we have complex transformations (rotation, crop), load a reasonably large version
             # or the full image if it's not too massive.
@@ -69,7 +69,8 @@ class ThumbnailLoader(QRunnable):
                     scale_h = target_h / orig_size.height()
                     scale = max(scale_w, scale_h) # Ensure we cover target size
                     
-                    reader.setScaledSize(QSize(int(orig_size.width() * scale), int(orig_size.height() * scale)))
+                    new_scaled_size = QSize(int(orig_size.width() * scale), int(orig_size.height() * scale))
+                    reader.setScaledSize(new_scaled_size)
                 image = reader.read()
 
             if image and not image.isNull():

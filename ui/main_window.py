@@ -1,6 +1,6 @@
-from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
+from PySide6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                              QDockWidget, QToolBar, QComboBox, QPushButton, QFileDialog, QFrame)
-from PyQt6.QtCore import Qt, QSize, QTimer
+from PySide6.QtCore import Qt, QSize, QTimer
 from ui.image_list import ImageList
 from ui.camera_roll import CameraRoll
 from ui.canvas import Canvas
@@ -22,7 +22,7 @@ class MainWindow(QMainWindow):
         self.main_layout.setSpacing(15)
         
         # Settings
-        from PyQt6.QtCore import QSettings
+        from PySide6.QtCore import QSettings
         self.settings = QSettings("KonradJuenger", "QuickCrop")
         self.output_dir = self.settings.value("output_dir", "")
         
@@ -36,7 +36,7 @@ class MainWindow(QMainWindow):
         self.res_mode = self.settings.value("res_mode", "Width")
 
         # Toolbar (Stacked Widget)
-        from PyQt6.QtWidgets import QStackedWidget
+        from PySide6.QtWidgets import QStackedWidget
         self.toolbar_stack = QStackedWidget()
         self.main_layout.addWidget(self.toolbar_stack)
         
@@ -137,7 +137,7 @@ class MainWindow(QMainWindow):
         self.all_paths = []
         self.path_to_index = {} # path -> index
         self.path_to_dims = {}  # path -> (w, h)
-
+        self.info_workers = {}  # path -> worker
         self.image_data = {} # path -> {'crop': (nx, ny, nw, nh), 'ratio': str, 'touched': bool}
         self.hidden_paths = set()
         
@@ -159,7 +159,7 @@ class MainWindow(QMainWindow):
         self.image_cache.image_ready.connect(self._on_image_cached)
         
         # Global Event Filter for Arrow Keys
-        from PyQt6.QtWidgets import QApplication
+        from PySide6.QtWidgets import QApplication
         QApplication.instance().installEventFilter(self)
         
     def create_normal_toolbar(self):
@@ -188,7 +188,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(line2)
         
         # Downsampling UI
-        from PyQt6.QtWidgets import QSpinBox, QLabel, QCheckBox
+        from PySide6.QtWidgets import QSpinBox, QLabel, QCheckBox
         self.downsample_btn = QPushButton("Downsample")
         self.downsample_btn.setCheckable(True)
         self.downsample_btn.setChecked(self.downsample_enabled)
@@ -250,7 +250,7 @@ class MainWindow(QMainWindow):
         self.toolbar_stack.addWidget(container)
 
     def create_arrange_toolbar(self):
-        from PyQt6.QtWidgets import QLabel, QSpinBox, QCheckBox, QLineEdit
+        from PySide6.QtWidgets import QLabel, QSpinBox, QCheckBox, QLineEdit
         container = QWidget()
         layout = QHBoxLayout(container)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -365,6 +365,8 @@ class MainWindow(QMainWindow):
             
             # Start background dimension fetch
             info_worker = ImageInfoLoader(img_path)
+            # Keep reference to prevent GC in PySide6
+            self.info_workers[img_path] = info_worker
             info_worker.signals.finished.connect(self._on_image_info_loaded)
             self.camera_roll.thread_pool.start(info_worker)
             
@@ -375,6 +377,10 @@ class MainWindow(QMainWindow):
     def _on_image_info_loaded(self, path, w, h):
         from core.processor import calculate_default_crop
         
+        # Cleanup worker reference
+        if path in self.info_workers:
+            del self.info_workers[path]
+            
         self.path_to_dims[path] = (w, h)
         
         # Calculate initial crop now that we have dimensions
@@ -429,7 +435,7 @@ class MainWindow(QMainWindow):
         cached_image, is_full = self.image_cache.get_image(path)
         
         if cached_image:
-            from PyQt6.QtGui import QPixmap
+            from PySide6.QtGui import QPixmap
             pixmap = QPixmap.fromImage(cached_image)
             self.canvas.load_image(pixmap)
         else:
@@ -544,7 +550,7 @@ class MainWindow(QMainWindow):
                 self.image_data[path]['ratio'] = text
         
     def eventFilter(self, watched, event):
-        from PyQt6.QtCore import QEvent, Qt
+        from PySide6.QtCore import QEvent, Qt
         
         # Disable all custom shortcuts in Arrange Mode to avoid interference 
         # (especially with the rename text box)
@@ -645,7 +651,7 @@ class MainWindow(QMainWindow):
         self.save_current_state()
         
         import os
-        from PyQt6.QtWidgets import QMessageBox
+        from PySide6.QtWidgets import QMessageBox
         from ui.processing_dialog import ProcessingDialog
         
         count = self.image_list.count()
@@ -846,7 +852,7 @@ class MainWindow(QMainWindow):
                 if existing_is_full and existing_img:
                     return
 
-            from PyQt6.QtGui import QPixmap
+            from PySide6.QtGui import QPixmap
             pixmap = QPixmap.fromImage(image)
             self.canvas.load_image(pixmap)
             

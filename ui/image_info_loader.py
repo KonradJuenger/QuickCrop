@@ -1,9 +1,9 @@
-from PyQt6.QtCore import QRunnable, pyqtSignal, QObject
-from PyQt6.QtGui import QImageReader, QImageIOHandler
+from PySide6.QtCore import QRunnable, Signal, QObject
+from PySide6.QtGui import QImageReader, QImageIOHandler
 
 class InfoSignals(QObject):
-    finished = pyqtSignal(str, int, int) # path, width, height
-    error = pyqtSignal(str, str)
+    finished = Signal(str, int, int) # path, width, height
+    error = Signal(str, str)
 
 class ImageInfoLoader(QRunnable):
     """Fast worker to just get image dimensions without loading full pixels."""

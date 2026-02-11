@@ -54,5 +54,5 @@ Outputs are located in the `dist/` directory.
 
 - **Quick Crop**: Licensed under the [PolyForm Shield License 1.0.0](https://polyformproject.org/licenses/shield/1.0.0). This license allows commercial use but prohibits reselling or competing products.
 - **Dependencies**: 
-    - **PyQt6**: Licensed under [GPL v3](https://www.gnu.org/licenses/gpl-3.0.html).
+    - **PySide6**: Licensed under [LGPL v3](https://www.gnu.org/licenses/lgpl-3.0.html).
     - **Pillow**: Licensed under [HPND](https://github.com/python-pillow/Pillow/blob/main/LICENSE).

@@ -1,6 +1,6 @@
-from PyQt6.QtWidgets import QListWidget, QListWidgetItem, QScroller, QStyledItemDelegate, QStyleOptionViewItem, QStyle
-from PyQt6.QtCore import pyqtSignal, QSize, QThreadPool, Qt, QRect, QPoint, QTimer
-from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor, QPen
+from PySide6.QtWidgets import QListWidget, QListWidgetItem, QScroller, QStyledItemDelegate, QStyleOptionViewItem, QStyle
+from PySide6.QtCore import Signal, QSize, QThreadPool, Qt, QRect, QPoint, QTimer
+from PySide6.QtGui import QIcon, QPixmap, QPainter, QColor, QPen
 
 
 class CameraRollDelegate(QStyledItemDelegate):
@@ -36,7 +36,7 @@ class CameraRollDelegate(QStyledItemDelegate):
         pixmap = icon.pixmap(icon_size)
 
         if is_hidden:
-            from PyQt6.QtGui import QImage
+            from PySide6.QtGui import QImage
             # Stretch the pixmap if we are shrinking
             if not self._grid_mode:
                 pixmap = pixmap.scaled(target_w, icon_size.height(), Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation)
@@ -79,10 +79,10 @@ class CameraRollDelegate(QStyledItemDelegate):
 
 
 class CameraRoll(QListWidget):
-    image_selected = pyqtSignal(str)
-    hide_requested = pyqtSignal(str)
-    remove_requested = pyqtSignal(str)
-    items_reordered = pyqtSignal(list)
+    image_selected = Signal(str)
+    hide_requested = Signal(str)
+    remove_requested = Signal(str)
+    items_reordered = Signal(list)
 
     GRID_GAP = 8  # px gap between items in grid mode
 
@@ -108,6 +108,7 @@ class CameraRoll(QListWidget):
 
         self.itemClicked.connect(self._on_item_clicked)
         self.currentItemChanged.connect(self._on_current_item_changed)
+        # Note: PySide6 uses Signal/Slot behavior. rowsMoved is a signal on the model.
         self.model().rowsMoved.connect(self._on_rows_moved)
 
         self.grid_mode = False
@@ -167,6 +168,7 @@ class CameraRoll(QListWidget):
         self.thread_pool.setMaxThreadCount(4)
 
         self.path_to_item = {}
+        self.active_workers = {} # (type, path) -> worker
         self.aspect_ratio = 4 / 5
         self.set_aspect_ratio("4:5")
 
@@ -357,6 +359,9 @@ class CameraRoll(QListWidget):
                 flip_v=flip_v
             )
             loader.signals.finished.connect(self._on_thumbnail_loaded)
+            
+            # Keep reference to prevent GC in PySide6
+            self.active_workers[('thumb', path)] = loader
             self.thread_pool.start(loader)
 
     def update_thumbnail(self, path, crop_rect, rotation=0, flip_h=False, flip_v=False):
@@ -371,9 +376,16 @@ class CameraRoll(QListWidget):
                 flip_v=flip_v
             )
             loader.signals.finished.connect(self._on_thumbnail_loaded)
+            
+            # Keep reference to prevent GC in PySide6
+            self.active_workers[('thumb', path)] = loader
             self.thread_pool.start(loader)
 
     def _on_thumbnail_loaded(self, path, image):
+        # Cleanup worker reference
+        if ('thumb', path) in self.active_workers:
+            del self.active_workers[('thumb', path)]
+            
         if path in self.path_to_item:
             item = self.path_to_item[path]
             item.setIcon(QIcon(QPixmap.fromImage(image)))
