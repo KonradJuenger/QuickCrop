@@ -39,7 +39,7 @@ QuickCrop is a desktop tool for preparing images for social media with consisten
 If you just want to use QuickCrop (no Python setup), download the app package directly:
 
 - **Mac**: [QuickCrop.app.zip](https://github.com/KonradJuenger/QuickCrop/releases/download/v0.0.1-beta/QuickCrop.app.zip)
-- **Windows**: [QuickCrop.app.zip](https://github.com/KonradJuenger/QuickCrop/releases/download/v0.0.1-beta/QuickCrop.app.zip)
+- **Windows**: [QuickCrop.exe](https://github.com/KonradJuenger/QuickCrop/releases/download/v0.0.1-beta/QuickCrop.exe)
 
 ## Installation via Python 
 
