@@ -17,13 +17,14 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
+        self.setObjectName("mainWindow")
         self.setWindowTitle("QuickCrop")
         self.setWindowIcon(QIcon(get_resource_path("resources/quickcrop_icon.svg")))
         self.resize(1200, 800)
 
         # Central Widget (Sort of, actually using Layouts)
         self.central_widget = QWidget()
-        self.central_widget.setStyleSheet("background-color: white;")
+        self.central_widget.setObjectName("centralWidget")
         self.setCentralWidget(self.central_widget)
         
         self.main_layout = QVBoxLayout(self.central_widget)
@@ -132,7 +133,7 @@ class MainWindow(QMainWindow):
         
         right_panel.addSpacing(10)
         
-        self.reset_btn = QPushButton("Reset All")
+        self.reset_btn = QPushButton("Reset")
         self.reset_btn.setFixedSize(60, 45)
         self.reset_btn.setToolTip("Reset Crop and Transforms (L)")
         self.reset_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -238,17 +239,11 @@ class MainWindow(QMainWindow):
         # Downsampling UI
         from PySide6.QtWidgets import QSpinBox, QLabel, QCheckBox
         self.downsample_btn = QPushButton("Downsample")
+        self.downsample_btn.setObjectName("downsampleButton")
         self.downsample_btn.setCheckable(True)
         self.downsample_btn.setChecked(self.downsample_enabled)
         self.downsample_btn.setFixedSize(110, 30)
         self.downsample_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.downsample_btn.setStyleSheet("""
-            QPushButton:checked {
-                background-color: #0078d7;
-                color: white;
-                font-weight: bold;
-            }
-        """)
         self.downsample_btn.toggled.connect(self._on_downsample_toggled)
         layout.addWidget(self.downsample_btn)
 
@@ -331,17 +326,11 @@ class MainWindow(QMainWindow):
         
         # Rename logic
         self.rename_btn = QPushButton("Rename")
+        self.rename_btn.setObjectName("renameButton")
         self.rename_btn.setCheckable(True)
         self.rename_btn.setChecked(self.rename_enabled)
         self.rename_btn.setFixedSize(80, 30)
         self.rename_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.rename_btn.setStyleSheet("""
-            QPushButton:checked {
-                background-color: #0078d7;
-                color: white;
-                font-weight: bold;
-            }
-        """)
         self.rename_btn.toggled.connect(self._on_rename_toggled)
         layout.addWidget(self.rename_btn)
         
@@ -361,10 +350,10 @@ class MainWindow(QMainWindow):
         
         # Export Button
         self.export_btn = QPushButton("Export")
+        self.export_btn.setObjectName("primaryExportButton")
         self.export_btn.setFixedSize(100, 30)
         self.export_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.export_btn.clicked.connect(self.export_images)
-        self.export_btn.setStyleSheet("font-weight: bold; background-color: #28a745; color: white;")
         layout.addWidget(self.export_btn)
         
         layout.addStretch()

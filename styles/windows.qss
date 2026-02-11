@@ -1,0 +1,16 @@
+QWidget#centralWidget {
+    background-color: white;
+}
+
+QPushButton#downsampleButton:checked,
+QPushButton#renameButton:checked {
+    background-color: #0078d7;
+    color: white;
+    font-weight: bold;
+}
+
+QPushButton#primaryExportButton {
+    font-weight: bold;
+    background-color: #28a745;
+    color: white;
+}

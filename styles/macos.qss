@@ -1,0 +1,44 @@
+QWidget#centralWidget {
+    background-color: white;
+}
+
+QPushButton {
+    border: 1px solid #b9b9be;
+    border-radius: 9px;
+    background-color: #f5f5f7;
+    color: #1f1f22;
+    padding: 4px 12px;
+}
+
+QPushButton:hover {
+    background-color: #ffffff;
+}
+
+QPushButton:pressed {
+    background-color: #e9e9ec;
+}
+
+QPushButton#downsampleButton:checked,
+QPushButton#renameButton:checked {
+    background-color: #0a84ff;
+    border-color: #0a84ff;
+    color: white;
+    font-weight: 600;
+}
+
+QPushButton#primaryExportButton {
+    font-weight: 700;
+    background-color: #34c759;
+    border-color: #34c759;
+    color: white;
+}
+
+QPushButton#primaryExportButton:hover {
+    background-color: #30b854;
+    border-color: #30b854;
+}
+
+QPushButton#primaryExportButton:pressed {
+    background-color: #2ca44b;
+    border-color: #2ca44b;
+}

@@ -3,6 +3,15 @@ import sys
 import subprocess
 import platform
 
+
+def generate_icons():
+    cmd = ["uv", "run", "python", "scripts/generate_icons.py"]
+    try:
+        subprocess.run(cmd, check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Warning: icon generation failed: {e}")
+
+
 def build():
     # Configuration
     app_name = "QuickCrop"
@@ -13,6 +22,8 @@ def build():
     # Platform specific settings
     system = platform.system()
     icon_file = None
+
+    generate_icons()
     
     if system == "Windows":
         icon_file = "assets/icon.ico"
@@ -27,6 +38,8 @@ def build():
              icon_file = None
     
     print(f"Building {app_name} for {system}...")
+
+    data_sep = ";" if system == "Windows" else ":"
     
     # Base command
     # --onefile: Create a single executable
@@ -40,8 +53,17 @@ def build():
         "--noconfirm",
         "--clean",
         "--name", app_name,
+        "--hidden-import", "PySide6.QtSvg",
         main_script
     ]
+
+    data_dirs = [
+        ("resources", "resources"),
+        ("styles", "styles"),
+    ]
+    for src, dst in data_dirs:
+        if os.path.exists(src):
+            cmd.extend(["--add-data", f"{src}{data_sep}{dst}"])
     
     if icon_file:
         cmd.extend(["--icon", icon_file])
