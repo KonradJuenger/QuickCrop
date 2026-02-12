@@ -45,7 +45,9 @@ If you just want to use QuickCrop (no Python setup), download the app package di
 
 MacOS blocks unknown binaries, run this after download in Terminal to unblock
 ```
-xattr -dr com.apple.quarantine ~/Downloads/QuickCrop.app && open ~/Downloads/QuickCrop.app
+cd ~/Downloads && \
+[ -f QuickCrop.zip ] && xattr -d com.apple.quarantine QuickCrop.zip && unzip -oq QuickCrop.zip || true; \
+xattr -dr com.apple.quarantine QuickCrop.app && open QuickCrop.app
 ```
 
 - **Windows**: [QuickCrop.exe](https://github.com/KonradJuenger/QuickCrop/releases/download/v0.0.1-beta/QuickCrop.exe)
