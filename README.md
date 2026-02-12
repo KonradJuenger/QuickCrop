@@ -41,8 +41,13 @@ QuickCrop is currently in pre-release beta. Features and behavior may change, an
 ## Download Program
 
 If you just want to use QuickCrop (no Python setup), download the app package directly:
+- Mac: [QuickCrop.zip](https://github.com/KonradJuenger/QuickCrop/releases/download/v0.0.1-beta/QuickCrop.zip)
 
-- **Mac**: [QuickCrop.app.zip](https://github.com/KonradJuenger/QuickCrop/releases/download/v0.0.1-beta/QuickCrop.app.zip)
+MacOS blocks unknown binaries, run this after download in Terminal to unblock
+```
+xattr -dr com.apple.quarantine ~/Downloads/QuickCrop.app && open ~/Downloads/QuickCrop.app
+```
+
 - **Windows**: [QuickCrop.exe](https://github.com/KonradJuenger/QuickCrop/releases/download/v0.0.1-beta/QuickCrop.exe)
 
 ## Installation via Python 
